@@ -71,3 +71,7 @@ LLAMA_BIN_DIR="$PWD/build/bin" MODEL=/path/to/model-q4_0.gguf \
 ```
 
 This checks operation placement at the width limit, compares supported ops to the CPU backend, and checks exact and requantized GEMV, including partial writes, split batches and buffer clearing with unequal or single-PD weight splits. It creates a CPU token prefix and compares full-vocabulary logits in single-PD, layer and row modes with XPU KV caches. It does not download models. The faster profile has separate error tolerances and a KL bound. These short prompts do not replace a corpus-level quality evaluation.
+
+## Batched row output copies
+
+For batch > 1, row-split results use device scatter and one contiguous P2P output transfer per matrix. Scratch storage is reused. `GGML_KUNLUN_ROW_COPY=legacy` selects the previous per-column D2D/P2P path for comparisons. The batch=1 path is unchanged.

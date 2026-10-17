@@ -42,12 +42,14 @@ struct buffer_context {
 };
 struct backend_context {
     int id;
-    kernel mv[2], ew;
+    kernel mv[2], ew, gather;
     void * split_x = nullptr;
     void * split_y = nullptr;
     void * local_y = nullptr;
+    void * peer_y = nullptr;
     size_t split_x_size = 0, split_y_size = 0;
     size_t local_y_size = 0;
+    size_t peer_y_size = 0;
 };
 
 ggml_backend_device devices[2];
@@ -183,6 +185,24 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
     if (parts->rows[0]) launch_mv(ctx->mv[0], 0, local_output, parts->ptr[0], x->data, k, parts->rows[0], batch, kernel_type(w->type),parts);
     if (parts->rows[1]) launch_mv(ctx->mv[1], 1, ctx->split_y, parts->ptr[1], ctx->split_x, k, parts->rows[1], batch, kernel_type(w->type),parts);
     select(1); check(kunlun::wait()); select(0); check(kunlun::wait());
+    const char * copy_mode=std::getenv("GGML_KUNLUN_ROW_COPY");
+    bool legacy=copy_mode && std::strcmp(copy_mode,"legacy") == 0;
+    if (batch > 1 && !legacy) {
+        if (parts->rows[0]) kunlun::copy_rows(ctx->gather,0,dst->data,local_output,parts->rows[0],batch,n,0);
+        if (parts->rows[0] == 0) {
+            peer(0,dst->data,1,ctx->split_y,ys);
+        } else {
+            if (ctx->peer_y_size < ys) {
+                release(0,ctx->peer_y,ctx->peer_y_size);
+                ctx->peer_y=allocate(0,ys); ctx->peer_y_size=ys;
+            }
+            GGML_ASSERT(ctx->peer_y);
+            peer(0,ctx->peer_y,1,ctx->split_y,ys);
+            kunlun::copy_rows(ctx->gather,0,dst->data,ctx->peer_y,parts->rows[1],batch,n,parts->rows[0]);
+            check(kunlun::wait());
+        }
+        ++split_matmuls; return;
+    }
     if (batch > 1 && parts->rows[0]) {
         for (int b = 0; b < batch; ++b) {
             check(kunlun::copy((char *)dst->data + (size_t)b*n*4, (char *)local_output + (size_t)b*parts->rows[0]*4, (size_t)parts->rows[0]*4, kunlun::device_to_device));
@@ -294,6 +314,7 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto * c = (backend_context *)b->context;
         release(1,c->split_x,c->split_x_size); release(1,c->split_y,c->split_y_size);
         release(0,c->local_y,c->local_y_size);
+        release(0,c->peer_y,c->peer_y_size);
         auto stats=kunlun::statistics();
         GGML_LOG_INFO("KUNLUN stats: pd0_mm=%zu pd1_mm=%zu split_mm=%zu p2p_copies=%zu p2p_bytes=%zu\n",stats.matmuls[0],stats.matmuls[1],split_matmuls.load(),stats.peer_copies,stats.peer_bytes);
         delete c; delete b;
