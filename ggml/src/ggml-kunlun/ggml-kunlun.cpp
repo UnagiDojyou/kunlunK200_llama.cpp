@@ -221,6 +221,20 @@ void elementwise(backend_context * ctx, ggml_tensor * dst) {
         dst->src[1] ? ggml_nelements(dst->src[1]) : ggml_nelements(dst),(kunlun::ElementwiseOp)op,parameter);
 }
 
+bool set_rows_layout_supported(const ggml_tensor * dst, const ggml_tensor * src, const ggml_tensor * idx) {
+    size_t sb=ggml_type_size(src->type), ib=ggml_type_size(idx->type);
+    if (dst->type != GGML_TYPE_F16 || (sb != 2 && sb != 4) || (ib != 4 && ib != 8) || dst->nb[0] != 2) return false;
+    for (int j=0;j<4;++j) {
+        if (src->ne[j] <= 0 || dst->ne[j] <= 0 || idx->ne[j] <= 0 || !src->nb[j] || !dst->nb[j] || !idx->nb[j]) return false;
+        if (src->nb[j] > INT_MAX || dst->nb[j] > INT_MAX || idx->nb[j] > INT_MAX) return false;
+        if (src->nb[j]%sb || dst->nb[j]%2 || idx->nb[j]%ib) return false;
+    }
+    size_t width=dst->ne[0]*2, rows=(dst->ne[1]-1)*dst->nb[1]+width;
+    size_t heads=(dst->ne[2]-1)*dst->nb[2]+rows;
+    return dst->nb[1] >= width && (dst->ne[2] == 1 || dst->nb[2] >= rows) && (dst->ne[3] == 1 || dst->nb[3] >= heads) &&
+        (uintptr_t)dst->data%2 == 0 && (uintptr_t)src->data%sb == 0 && (uintptr_t)idx->data%ib == 0;
+}
+
 void set_rows_legacy(ggml_tensor * dst) {
     const auto * src = dst->src[0];
     const auto * idx = dst->src[1];
@@ -289,8 +303,7 @@ bool contiguous_cache_rows(const ggml_tensor * dst, const ggml_tensor * src, con
 void set_rows(backend_context * ctx, ggml_tensor * dst) {
     const auto * src=dst->src[0]; const auto * idx=dst->src[1];
     const char * mode=std::getenv("GGML_KUNLUN_SET_ROWS");
-    bool supported=src->ne[1] > 0 && src->ne[2] > 0 && src->ne[3] > 0;
-    for (int j=0;j<4;++j) supported=supported && src->nb[j] > 0 && dst->nb[j] > 0 && idx->nb[j] > 0 && src->nb[j] <= INT_MAX && dst->nb[j] <= INT_MAX && idx->nb[j] <= INT_MAX;
+    bool supported=set_rows_layout_supported(dst,src,idx);
     uintptr_t d=(uintptr_t)dst->data, a=(uintptr_t)src->data, b=(uintptr_t)idx->data;
     bool alias=(d < a+ggml_nbytes(src) && a < d+ggml_nbytes(dst)) || (d < b+ggml_nbytes(idx) && b < d+ggml_nbytes(dst));
     supported=supported && !alias;
@@ -342,7 +355,8 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
             t->ne[1] > 0 && a->ne[0] > 0 && a->ne[0] <= 16384 &&
             t->ne[2] == a->ne[2] && t->ne[3] == a->ne[3] && b->ne[0] == a->ne[1] &&
             b->ne[1] > 0 && b->ne[2] > 0 && b->ne[3] == 1 && a->ne[2]%b->ne[1] == 0 && a->ne[3]%b->ne[2] == 0 &&
-            ggml_nbytes(a) <= INT_MAX && ggml_nbytes(b) <= INT_MAX && ggml_nbytes(t) <= INT_MAX;
+            ggml_nbytes(a) <= INT_MAX && ggml_nbytes(b) <= INT_MAX && ggml_nbytes(t) <= INT_MAX &&
+            set_rows_layout_supported(t,a,b);
     }
     if (!ggml_is_contiguous(t) || !ggml_is_contiguous(a)) return false;
     if (t->op == GGML_OP_MUL_MAT) {
@@ -353,7 +367,10 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
             ggml_nbytes(a) <= INT_MAX && ggml_nbytes(b) <= INT_MAX && ggml_nbytes(t) <= INT_MAX;
     }
     if (a->type != GGML_TYPE_F32 || t->type != GGML_TYPE_F32 || t->ne[0] <= 0 || t->ne[0] > 16384 || ggml_nelements(t) <= 0 || ggml_nelements(t) > INT_MAX / 4) return false;
-    if (t->op == GGML_OP_RMS_NORM) return t->ne[0] > 0 && t->ne[0] <= 16384;
+    if (t->op == GGML_OP_RMS_NORM) {
+        float epsilon; std::memcpy(&epsilon,t->op_params,4);
+        return t->ne[0] > 0 && t->ne[0] <= 16384 && std::isfinite(epsilon) && epsilon > 0;
+    }
     if (t->op == GGML_OP_UNARY) return ggml_get_unary_op(t) == GGML_UNARY_OP_SILU;
     if (t->op == GGML_OP_SCALE) { float bias; std::memcpy(&bias, (const char *)t->op_params+4, 4); return bias == 0; }
     if (t->op == GGML_OP_ADD || t->op == GGML_OP_MUL) {
