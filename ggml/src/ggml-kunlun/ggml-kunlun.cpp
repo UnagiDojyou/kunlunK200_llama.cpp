@@ -383,11 +383,13 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto * c = (backend_context *)b->context;
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
+            kunlun::diagnostic_tensor(t->name,t->ne);
             if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
             else if (t->op == GGML_OP_SET_ROWS) set_rows(c,t);
             else if (t->op == GGML_OP_ADD || t->op == GGML_OP_MUL || t->op == GGML_OP_RMS_NORM || t->op == GGML_OP_UNARY || t->op == GGML_OP_SCALE) elementwise(c,t);
             else GGML_ASSERT(t->op == GGML_OP_NONE || t->op == GGML_OP_VIEW || t->op == GGML_OP_RESHAPE || t->op == GGML_OP_PERMUTE || t->op == GGML_OP_TRANSPOSE);
         }
+        kunlun::diagnostic_tensor(nullptr);
         return GGML_STATUS_SUCCESS;
     };
     return new ggml_backend{&guid,iface,dev,ctx};
