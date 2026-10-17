@@ -42,7 +42,7 @@ struct buffer_context {
 };
 struct backend_context {
     int id;
-    kernel mv[2], ew, gather;
+    kernel mv[2], ew, gather, kv;
     void * split_x = nullptr;
     void * split_y = nullptr;
     void * local_y = nullptr;
@@ -221,7 +221,7 @@ void elementwise(backend_context * ctx, ggml_tensor * dst) {
         dst->src[1] ? ggml_nelements(dst->src[1]) : ggml_nelements(dst),(kunlun::ElementwiseOp)op,parameter);
 }
 
-void set_rows(ggml_tensor * dst) {
+void set_rows_legacy(ggml_tensor * dst) {
     const auto * src = dst->src[0];
     const auto * idx = dst->src[1];
     std::vector<char> input(ggml_nbytes(src)), indices(ggml_nbytes(idx));
@@ -260,6 +260,66 @@ void set_rows(ggml_tensor * dst) {
         }
     }
     if (!scatter.empty()) ggml_backend_tensor_set(dst,scatter.data(),0,scatter.size());
+}
+
+bool contiguous_cache_rows(const ggml_tensor * dst, const ggml_tensor * src, const ggml_tensor * idx,
+                           const std::vector<char> & indices, kunlun::SetRowsLayout & p) {
+    const auto * root=dst; while (root->view_src) root=root->view_src;
+    if (dst->ne[0] != 1 || src->ne[2] != 1 || src->ne[3] != 1 || root->ne[2] != 1 || root->ne[3] != 1 ||
+        root->ne[0] < 8 || root->ne[0]%8 || root->ne[1] <= 0 || root->data != dst->data ||
+        !ggml_is_contiguous(root) || dst->nb[1] != 2 || src->nb[1] != ggml_type_size(src->type) ||
+        idx->nb[0] != ggml_type_size(idx->type) || idx->ne[1] != 1 || idx->ne[2] != 1 ||
+        dst->ne[1] != root->ne[0]*root->ne[1] || src->ne[1]%root->ne[0]) return false;
+    int64_t features=root->ne[0], stride=root->ne[1], tokens=src->ne[1]/features;
+    if (tokens < 1 || tokens > 32) return false;
+    auto index=[&](int64_t row) {
+        int64_t value;
+        if (idx->type == GGML_TYPE_I64) std::memcpy(&value,indices.data()+row*idx->nb[0],8);
+        else { int32_t v; std::memcpy(&v,indices.data()+row*idx->nb[0],4); value=v; }
+        return value;
+    };
+    int64_t start=index(0);
+    if (start < 0 || start+tokens > stride) return false;
+    for (int64_t token=0;token<tokens;++token) for (int64_t feature=0;feature<features;++feature)
+        if (index(token*features+feature) != feature*stride+start+token) return false;
+    p.cache_features=features; p.cache_tokens=tokens; p.cache_stride=stride;
+    return true;
+}
+
+void set_rows(backend_context * ctx, ggml_tensor * dst) {
+    const auto * src=dst->src[0]; const auto * idx=dst->src[1];
+    const char * mode=std::getenv("GGML_KUNLUN_SET_ROWS");
+    bool supported=src->ne[1] > 0 && src->ne[2] > 0 && src->ne[3] > 0;
+    for (int j=0;j<4;++j) supported=supported && src->nb[j] > 0 && dst->nb[j] > 0 && idx->nb[j] > 0 && src->nb[j] <= INT_MAX && dst->nb[j] <= INT_MAX && idx->nb[j] <= INT_MAX;
+    uintptr_t d=(uintptr_t)dst->data, a=(uintptr_t)src->data, b=(uintptr_t)idx->data;
+    bool alias=(d < a+ggml_nbytes(src) && a < d+ggml_nbytes(dst)) || (d < b+ggml_nbytes(idx) && b < d+ggml_nbytes(dst));
+    supported=supported && !alias;
+    if (!supported || (mode && std::strcmp(mode,"legacy") == 0)) { set_rows_legacy(dst); return; }
+    std::vector<char> indices(ggml_nbytes(idx));
+    ggml_backend_tensor_get(idx,indices.data(),0,indices.size());
+    kunlun::SetRowsLayout p{};
+    p.width=src->ne[0]; p.rows=src->ne[1]; p.dim2=src->ne[2]; p.dim3=src->ne[3];
+    for (int j=0;j<4;++j) p.source_stride[j]=src->nb[j];
+    for (int j=0;j<3;++j) { p.destination_stride[j]=dst->nb[j+1]; p.index_stride[j]=idx->nb[j]; }
+    p.index_extent[0]=idx->ne[1]; p.index_extent[1]=idx->ne[2];
+    p.source_bytes=ggml_type_size(src->type); p.index_bytes=ggml_type_size(idx->type); p.destination_rows=dst->ne[1];
+    if (!contiguous_cache_rows(dst,src,idx,indices,p)) {
+    std::vector<int64_t> targets(src->ne[1]);
+    for (int64_t i3=0;i3<src->ne[3];++i3) for (int64_t i2=0;i2<src->ne[2];++i2) {
+        for (int64_t row=0;row<src->ne[1];++row) {
+            size_t off=row*idx->nb[0]+(i2%idx->ne[1])*idx->nb[1]+(i3%idx->ne[2])*idx->nb[2];
+            int64_t target;
+            if (idx->type == GGML_TYPE_I64) std::memcpy(&target,indices.data()+off,8);
+            else { int32_t value; std::memcpy(&value,indices.data()+off,4); target=value; }
+            if (target < 0 || target >= dst->ne[1]) GGML_ABORT("SET_ROWS %s index %lld outside [0,%lld)",dst->name,(long long)target,(long long)dst->ne[1]);
+            targets[row]=target;
+        }
+        if (!std::is_sorted(targets.begin(),targets.end())) std::sort(targets.begin(),targets.end());
+        if (std::adjacent_find(targets.begin(),targets.end()) != targets.end()) { set_rows_legacy(dst); return; }
+    }
+    }
+    bool ok=kunlun::set_rows_f16(ctx->kv,ctx->id,dst->data,ggml_nbytes(dst),src->data,ggml_nbytes(src),idx->data,ggml_nbytes(idx),p);
+    if (!ok) GGML_ABORT("SET_ROWS %s device index validation failed on PD%d",dst->name,ctx->id);
 }
 
 bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
@@ -324,7 +384,7 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
             if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
-            else if (t->op == GGML_OP_SET_ROWS) set_rows(t);
+            else if (t->op == GGML_OP_SET_ROWS) set_rows(c,t);
             else if (t->op == GGML_OP_ADD || t->op == GGML_OP_MUL || t->op == GGML_OP_RMS_NORM || t->op == GGML_OP_UNARY || t->op == GGML_OP_SCALE) elementwise(c,t);
             else GGML_ASSERT(t->op == GGML_OP_NONE || t->op == GGML_OP_VIEW || t->op == GGML_OP_RESHAPE || t->op == GGML_OP_PERMUTE || t->op == GGML_OP_TRANSPOSE);
         }

@@ -79,3 +79,7 @@ For batch > 1, row-split results use device scatter and one contiguous P2P outpu
 ## Row split device ownership
 
 `-dev KUNLUN0,KUNLUN1 -sm row -ts 1,1` splits every supported layer matrix across both physical PDs, including layers whose output belongs to PD1. The loader still assigns activation/KV ownership by layer; this does not change Layer Split or implement tensor-graph parallelism. The historical `-dev KUNLUN0 -sm row -ts 1,1` path remains supported. `GGML_KUNLUN_ROW_SPLIT=legacy` restores the former PD0-only split-buffer selection for comparisons. Split fractions describe physical PD0/PD1 weight rows.
+
+## Device KV updates
+
+F16 SET_ROWS updates with supported aligned strides and non-overlapping inputs use the indexed device kernel. The adapter checks every index; duplicates, aliasing and unsupported layouts retain the CPU path. A proven contiguous V-cache update batches token runs per feature. This removes the full-cache D2H/read-modify/H2D cycle for updates, while CPU Attention still transfers its inputs. `GGML_KUNLUN_SET_ROWS=legacy` restores the reference path. `GGML_KUNLUN_CPU_KV=1` keeps the CPU cache comparison mode.
