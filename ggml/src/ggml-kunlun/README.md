@@ -91,3 +91,7 @@ The library selects a two-stage FP32 parallel reduction for small batches. `KUNL
 ## Packed residual GEMV candidate
 
 `KUNLUN_GEMV=fused` evaluates the library packed primary/residual FC path. `legacy` retains two FCs. Both keep residual correction. This switch operates on the existing `GGML_KUNLUN_REQUANT_I8=1` representation; it does not change direct Q4 storage or CPU fallback.
+
+## Validated small-batch default
+
+KunlunK200 0.2 or newer is required for installed-library builds. The submodule pins the tested implementation. With `GGML_KUNLUN_REQUANT_I8=1`, the library uses packed primary/residual FC through batch 8; larger batches keep two FCs. Override with `KUNLUN_GEMV=legacy` or `fused`. CPU KV and XPU KV remain available, as do each legacy comparison switch above. Quantization quality and speed must be compared under identical token IDs and context boundaries; short greedy matches do not establish long-form quality.

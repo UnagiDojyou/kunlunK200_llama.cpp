@@ -1,6 +1,6 @@
 option(KUNLUN_USE_SYSTEM_LIBRARY "Use an installed KunlunK200 package instead of the submodule" OFF)
 if(KUNLUN_USE_SYSTEM_LIBRARY)
-    find_package(KunlunK200 0.1 CONFIG REQUIRED)
+    find_package(KunlunK200 0.2 CONFIG REQUIRED)
 elseif(NOT TARGET KunlunK200::kunlunk200)
     set(kunlun_source "${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/KunlunK200")
     if(NOT EXISTS "${kunlun_source}/CMakeLists.txt")
