@@ -87,3 +87,7 @@ F16 SET_ROWS updates with supported aligned strides and non-overlapping inputs u
 ## RMS normalization
 
 The library selects a two-stage FP32 parallel reduction for small batches. `KUNLUN_RMS_NORM=legacy` permits numerical and performance comparisons with the previous reduction. Supported in-place tensors retain their input until normalization completes.
+
+## Packed residual GEMV candidate
+
+`KUNLUN_GEMV=fused` evaluates the library packed primary/residual FC path. `legacy` retains two FCs. Both keep residual correction. This switch operates on the existing `GGML_KUNLUN_REQUANT_I8=1` representation; it does not change direct Q4 storage or CPU fallback.
