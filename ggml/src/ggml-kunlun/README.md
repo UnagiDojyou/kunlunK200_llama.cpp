@@ -28,15 +28,15 @@ The submodule URL points to the library fork `UnagiDojyou/kunlunK200_lib`. Publi
 
 Row split distributes each matrix's output rows between the two PDs, sends activations with P2P, and gathers outputs with P2P. The main PD must be PD0. This is weight tensor sharding through llama.cpp's row mode; the newer `-sm tensor` graph/KV sharding mode is not implemented.
 
-MUL_MAT supports contiguous 2D weight matrices in F32, F16, or Q4_0, F32 activations, K divisible by 32, and K up to 16384. Multiple activation columns are supported. ADD, MUL, RMS_NORM, SILU and zero-bias SCALE support selected contiguous F32 shapes with row width up to 16384; wider operations fall back to CPU. SET_ROWS supports F32/F16 sources into F16 caches, including strided sources and I32/I64 indices. Cache updates currently use CPU staging and conversion; transposed V updates are merged into bulk transfers. Use `-nkvo` only when CPU KV storage is desired. Unsupported attention and other operations run on CPU. This is hybrid inference.
+MUL_MAT supports contiguous 2D weight matrices in F32, F16, or Q4_0, F32 activations, K divisible by 32, and K up to 16384. Multiple activation columns are supported. ADD, MUL, RMS_NORM, SILU and zero-bias SCALE support selected contiguous F32 shapes with row width up to 16384; wider operations fall back to CPU. SET_ROWS supports F32/F16 sources into F16 caches, including aligned strided sources and I32/I64 indices. Supported non-overlapping cache updates execute on device; the CPU staging implementation remains available for other layouts and comparison. Use `-nkvo` when CPU KV storage is desired. Unsupported attention and other operations run on CPU. This is hybrid inference.
 
 ## Precision profiles
 
 With `GGML_KUNLUN_REQUANT_I8=0` or unset, the SIMD kernel reads standard Q4_0 blocks directly and uses F32 activations. This is the original, slower path.
 
-With `GGML_KUNLUN_REQUANT_I8=1`, each Q4_0 matrix is requantized to rowwise INT8 once at load time. Original Q4 bytes remain in host memory for tensor readback. XPU weight storage grows to about 1.8 times the original size. Activations are represented as two INT8 components, and two CDNN GEMVs plus a residual sum reduce input quantization error. This is additional quantization, so logits can differ. The inputs are staged on CPU for this conversion; the matrix calculations run on XPU CDNN engines. This path is distinct from the vendor CDNN INT4 layout.
+With `GGML_KUNLUN_REQUANT_I8=1`, each Q4_0 matrix is requantized to rowwise INT8 once at load time. Original Q4 bytes remain in host memory for tensor readback. XPU weight storage grows to about 1.8 times the original size. Activations are represented as primary and residual INT8 components to reduce input quantization error. Through batch 8, one packed CDNN FC computes both components; larger batches use two FCs. This is additional quantization, so logits can differ. The inputs are staged on CPU for this conversion; the matrix calculations run on XPU CDNN engines. This path is distinct from the vendor CDNN INT4 layout.
 
-To use the two-pass INT8 profile with XPU KV storage:
+To use the primary/residual INT8 profile with XPU KV storage:
 
 ```sh
 export GGML_KUNLUN_REQUANT_I8=1
@@ -50,9 +50,13 @@ k200-thermal-guard --name inference --seconds 300 -- \
 
 The original standalone GEMV reproduced RD_OVER_IBUF on a reset device. Reserving an aligned trailing instruction-fetch region fixed the reproduced case on both PDs. Custom SIMD kernels use the CL launch API. The loader also caps individual buffers at 1 GiB so the 7B packed weights do not require an allocation across KL1 HBM regions. In-place RMS_NORM uses a stable input copy.
 
-All 116 supported SET_ROWS and elementwise cases passed CPU comparison. Direct F32/F16/Q4 GEMV passed on both PDs. Packed weights passed partial-write, byte-readback and view checks. K=N=4096 GEMV measured 21.47 ms on the original path and 0.358 ms on the two-pass CDNN path; quantization error is evaluated separately from the original strict tolerance.
+All 103 supported SET_ROWS and elementwise cases passed CPU comparison on each PD after conservative stride/alignment guards. Shapes outside the device domain retain CPU fallback. Direct F32/F16/Q4 GEMV passed on both PDs. Packed weights passed partial-write, byte-readback and view checks. Independent tests also cover in-place input aliases, split fractions and batches 1/4/8/32. Quantization error is evaluated separately from the original strict tolerance.
 
-TinyLlama and Llama 2 7B were checked in single-PD, layer-split and row-split modes with XPU KV. Fixed-prefix CPU comparisons check full-vocabulary logits and KL divergence; this is a small quality sample, not a full perplexity evaluation. Llama 2 7B decoding improved from about 0.12 to about 5 token/s. An unforced 32-token CLI run completed at 5.26 token/s. Peak observed temperature was 56 C. Detailed results are in the workspace `llm.md`.
+TinyLlama and Llama 2 7B are checked in single-PD, layer-split and row-split modes with CPU and XPU KV. Fixed-token tests compare full-vocabulary logits and KL divergence, and separate runs exercise unforced generation. The fixed 8192-token Llama 2 corpus comparison at context 256/1024 is documented in `examples/kunlun/QUALITY.md`. With the new RMS/packed FC defaults, PPL changed by +0.00633%/+0.01928% relative to the old CDNN path. This does not establish arbitrary long-form quality or the original FP16-to-Q4 quantization error.
+
+One 128-token prefill at batch 32 has CPU logit NMSE about 0.02875 on the frozen old implementation and 0.02874 on the final implementation (mean KL about 0.00153/0.00151). The matched CPU batch-8 and batch-32 results are identical. The additional new-versus-old NMSE is about 5.36e-6, with 32/32 argmax agreement. This existing precision limitation is recorded separately from the added rounding error, the short-prompt agreement and the batch-8 corpus gates.
+
+For Llama 2 7B Q4_0, 6 CPU threads, context 256, batch/ubatch 8, FA off and the same 6-token prompt plus fixed 31 decode inputs, the median of five trials after warm-up was 11.15 TG token/s and 34.67 PP token/s on one PD with CPU KV, compared with 6.61/26.94 on the stable pre-optimization implementation. Full row split with the historical main-only selection improved from 8.05/4.02 to 11.73/29.87. These short-prompt timings exclude model load and initialization. The original unstable in-place implementation is not the timing baseline. Detailed per-trial results and source IDs are in the workspace `optimization-20261017/REPORT.md`.
 
 Use the external temperature guard and stop at 80 C. A kernel error is also a stop condition. Do not continue launching against a PD in state E. Firmware and PLL changes are not needed.
 
@@ -88,9 +92,9 @@ F16 SET_ROWS updates with supported aligned strides and non-overlapping inputs u
 
 The library selects a two-stage FP32 parallel reduction for small batches. `KUNLUN_RMS_NORM=legacy` permits numerical and performance comparisons with the previous reduction. Supported in-place tensors retain their input until normalization completes.
 
-## Packed residual GEMV candidate
+## Packed residual GEMV
 
-`KUNLUN_GEMV=fused` evaluates the library packed primary/residual FC path. `legacy` retains two FCs. Both keep residual correction. This switch operates on the existing `GGML_KUNLUN_REQUANT_I8=1` representation; it does not change direct Q4 storage or CPU fallback.
+`KUNLUN_GEMV=fused` forces the library packed primary/residual FC path for comparisons. `legacy` retains two FCs. Both keep residual correction. This switch operates on the existing `GGML_KUNLUN_REQUANT_I8=1` representation; it does not change direct Q4 storage or CPU fallback.
 
 ## Validated small-batch default
 

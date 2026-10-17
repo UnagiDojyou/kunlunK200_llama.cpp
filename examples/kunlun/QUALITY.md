@@ -46,3 +46,6 @@ Use `kunlun-llm-smoke` separately for PP/TG timing and free generation. Its
 permit fixed teacher forcing, full-context boundary tests and independent
 free generation. Teacher-forced agreement does not establish free-running
 long-form quality. Preserve generated token IDs and text as well as metrics.
+The argmax text trace printed during teacher forcing uses the reference
+history; it is not a causal free-running sample. Use runs without a teacher
+file for reading and comparing generated text.
