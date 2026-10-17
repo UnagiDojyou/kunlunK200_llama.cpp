@@ -19,7 +19,6 @@ int main(int argc, char ** argv) {
     int device = argc>6 ? atoi(argv[6]) : 0;
     char device_name[32]; snprintf(device_name,sizeof(device_name),"KUNLUN%d",device);
     auto * dev = ggml_backend_dev_by_name(device_name);
-    GGML_ASSERT(!split || device == 0);
     GGML_ASSERT(dev && k>0 && n>0 && batch>0 && k%32==0);
     auto backend = ggml_backend_dev_init(dev,nullptr);
     auto * ctx = ggml_init({8*1024*1024,nullptr,true});
@@ -37,7 +36,7 @@ int main(int argc, char ** argv) {
     }
     if(split) {
         auto fn=(ggml_backend_split_buffer_type_t)ggml_backend_reg_get_proc_address(ggml_backend_dev_backend_reg(dev),"ggml_backend_split_buffer_type");
-        buft=fn(0,fractions);
+        buft=fn(device,fractions);
     }
     auto wb = ggml_backend_buft_alloc_buffer(buft,ggml_backend_buft_get_alloc_size(buft,w)+256);
     GGML_ASSERT(wb && ggml_backend_tensor_alloc(wb,w,ggml_backend_buffer_get_base(wb))==GGML_STATUS_SUCCESS);

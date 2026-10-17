@@ -19,8 +19,10 @@ for pd in 0 1; do
 done
 export GGML_KUNLUN_REQUANT_I8=1 GGML_KUNLUN_TEST_CHUNKS=1
 run adapter-fast-tail "$bin/kunlun-gemv-bench" 256 65 1 0 2
-for batch in 1 4 8 32; do
-    run "adapter-fast-split-$batch" "$bin/kunlun-gemv-bench" 1024 512 "$batch" 1 2
+for pd in 0 1; do
+    for batch in 1 4 8 32; do
+        run "adapter-fast-split-$pd-$batch" "$bin/kunlun-gemv-bench" 1024 512 "$batch" 1 2 "$pd"
+    done
 done
 export GGML_KUNLUN_TEST_CLEAR=1
 for fraction in 0 0.25 1; do

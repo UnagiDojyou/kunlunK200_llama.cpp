@@ -75,3 +75,7 @@ This checks operation placement at the width limit, compares supported ops to th
 ## Batched row output copies
 
 For batch > 1, row-split results use device scatter and one contiguous P2P output transfer per matrix. Scratch storage is reused. `GGML_KUNLUN_ROW_COPY=legacy` selects the previous per-column D2D/P2P path for comparisons. The batch=1 path is unchanged.
+
+## Row split device ownership
+
+`-dev KUNLUN0,KUNLUN1 -sm row -ts 1,1` splits every supported layer matrix across both physical PDs, including layers whose output belongs to PD1. The loader still assigns activation/KV ownership by layer; this does not change Layer Split or implement tensor-graph parallelism. The historical `-dev KUNLUN0 -sm row -ts 1,1` path remains supported. `GGML_KUNLUN_ROW_SPLIT=legacy` restores the former PD0-only split-buffer selection for comparisons. Split fractions describe physical PD0/PD1 weight rows.

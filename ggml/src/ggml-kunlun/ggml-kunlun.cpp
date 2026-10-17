@@ -158,58 +158,57 @@ void launch_mv(kernel & fn, int id, void * y, const void * w, const void * x, in
 int kernel_type(enum ggml_type t) { return t == GGML_TYPE_Q4_0 ? 2 : t == GGML_TYPE_F16 ? 1 : 0; }
 
 void matmul(backend_context * ctx, ggml_tensor * dst) {
-    const auto * w = dst->src[0]; const auto * x = dst->src[1];
-    int k = w->ne[0], n = w->ne[1], batch = x->ne[1];
-    auto * wb = buffer_of(w);
-    auto * parts = (tensor_parts *)w->extra;
+    const auto * w=dst->src[0]; const auto * x=dst->src[1];
+    int k=w->ne[0], n=w->ne[1], batch=x->ne[1];
+    auto * wb=buffer_of(w); auto * parts=(tensor_parts *)w->extra;
+    const int main=ctx->id, other=1-main;
     if (!wb || !wb->type->split) {
-        launch_mv(ctx->mv[ctx->id], ctx->id, dst->data, w->data, x->data, k, n, batch, kernel_type(w->type),parts);
+        launch_mv(ctx->mv[main],main,dst->data,w->data,x->data,k,n,batch,kernel_type(w->type),parts);
         check(kunlun::wait()); return;
     }
-    GGML_ASSERT(parts && ctx->id == 0);
-    if (parts->rows[1] == 0) {
-        launch_mv(ctx->mv[0], 0, dst->data, parts->ptr[0], x->data, k, n, batch, kernel_type(w->type),parts);
+    GGML_ASSERT(parts && wb->type->id == main);
+    const int local_rows=parts->rows[main], remote_rows=parts->rows[other];
+    const int local_offset=main ? parts->rows[0] : 0;
+    const int remote_offset=other ? parts->rows[0] : 0;
+    if (!remote_rows) {
+        launch_mv(ctx->mv[main],main,dst->data,parts->ptr[main],x->data,k,n,batch,kernel_type(w->type),parts);
         check(kunlun::wait()); ++split_matmuls; return;
     }
-    size_t xs = (size_t)k * batch * 4, ys = (size_t)parts->rows[1] * batch * 4;
-    if (ctx->split_x_size < xs) { release(1, ctx->split_x, ctx->split_x_size); ctx->split_x = allocate(1, xs); ctx->split_x_size = xs; }
-    if (ctx->split_y_size < ys) { release(1, ctx->split_y, ctx->split_y_size); ctx->split_y = allocate(1, ys); ctx->split_y_size = ys; }
+    size_t xs=(size_t)k*batch*4, ys=(size_t)remote_rows*batch*4;
+    if (ctx->split_x_size < xs) { release(other,ctx->split_x,ctx->split_x_size); ctx->split_x=allocate(other,xs); ctx->split_x_size=xs; }
+    if (ctx->split_y_size < ys) { release(other,ctx->split_y,ctx->split_y_size); ctx->split_y=allocate(other,ys); ctx->split_y_size=ys; }
     GGML_ASSERT(ctx->split_x && ctx->split_y);
-    void * local_output = dst->data;
-    if (batch > 1 && parts->rows[0]) {
-        size_t size = (size_t)parts->rows[0] * batch * 4;
-        if (ctx->local_y_size < size) { release(0,ctx->local_y,ctx->local_y_size); ctx->local_y=allocate(0,size); ctx->local_y_size=size; }
+    void * local_output=(char *)dst->data+local_offset*4;
+    if (batch > 1 && local_rows) {
+        size_t size=(size_t)local_rows*batch*4;
+        if (ctx->local_y_size < size) { release(main,ctx->local_y,ctx->local_y_size); ctx->local_y=allocate(main,size); ctx->local_y_size=size; }
         GGML_ASSERT(ctx->local_y); local_output=ctx->local_y;
     }
-    peer(1, ctx->split_x, 0, x->data, xs);
-    if (parts->rows[0]) launch_mv(ctx->mv[0], 0, local_output, parts->ptr[0], x->data, k, parts->rows[0], batch, kernel_type(w->type),parts);
-    if (parts->rows[1]) launch_mv(ctx->mv[1], 1, ctx->split_y, parts->ptr[1], ctx->split_x, k, parts->rows[1], batch, kernel_type(w->type),parts);
-    select(1); check(kunlun::wait()); select(0); check(kunlun::wait());
+    peer(other,ctx->split_x,main,x->data,xs);
+    if (local_rows) launch_mv(ctx->mv[main],main,local_output,parts->ptr[main],x->data,k,local_rows,batch,kernel_type(w->type),parts);
+    launch_mv(ctx->mv[other],other,ctx->split_y,parts->ptr[other],ctx->split_x,k,remote_rows,batch,kernel_type(w->type),parts);
+    select(other); check(kunlun::wait()); select(main); check(kunlun::wait());
     const char * copy_mode=std::getenv("GGML_KUNLUN_ROW_COPY");
     bool legacy=copy_mode && std::strcmp(copy_mode,"legacy") == 0;
     if (batch > 1 && !legacy) {
-        if (parts->rows[0]) kunlun::copy_rows(ctx->gather,0,dst->data,local_output,parts->rows[0],batch,n,0);
-        if (parts->rows[0] == 0) {
-            peer(0,dst->data,1,ctx->split_y,ys);
-        } else {
-            if (ctx->peer_y_size < ys) {
-                release(0,ctx->peer_y,ctx->peer_y_size);
-                ctx->peer_y=allocate(0,ys); ctx->peer_y_size=ys;
-            }
+        if (local_rows) kunlun::copy_rows(ctx->gather,main,dst->data,local_output,local_rows,batch,n,local_offset);
+        if (!local_rows) peer(main,dst->data,other,ctx->split_y,ys);
+        else {
+            if (ctx->peer_y_size < ys) { release(main,ctx->peer_y,ctx->peer_y_size); ctx->peer_y=allocate(main,ys); ctx->peer_y_size=ys; }
             GGML_ASSERT(ctx->peer_y);
-            peer(0,ctx->peer_y,1,ctx->split_y,ys);
-            kunlun::copy_rows(ctx->gather,0,dst->data,ctx->peer_y,parts->rows[1],batch,n,parts->rows[0]);
+            peer(main,ctx->peer_y,other,ctx->split_y,ys);
+            kunlun::copy_rows(ctx->gather,main,dst->data,ctx->peer_y,remote_rows,batch,n,remote_offset);
             check(kunlun::wait());
         }
-        ++split_matmuls; return;
-    }
-    if (batch > 1 && parts->rows[0]) {
-        for (int b = 0; b < batch; ++b) {
-            check(kunlun::copy((char *)dst->data + (size_t)b*n*4, (char *)local_output + (size_t)b*parts->rows[0]*4, (size_t)parts->rows[0]*4, kunlun::device_to_device));
+    } else {
+        if (batch > 1 && local_rows) {
+            for (int b=0;b<batch;++b) check(kunlun::copy((char *)dst->data+((size_t)b*n+local_offset)*4,
+                (char *)local_output+(size_t)b*local_rows*4,(size_t)local_rows*4,kunlun::device_to_device));
+            check(kunlun::wait());
         }
-        check(kunlun::wait());
+        for (int b=0;b<batch;++b) peer(main,(char *)dst->data+((size_t)b*n+remote_offset)*4,other,
+            (char *)ctx->split_y+(size_t)b*remote_rows*4,(size_t)remote_rows*4);
     }
-    for (int b = 0; b < batch; ++b) peer(0, (char *)dst->data + ((size_t)b*n + parts->rows[0])*4, 1, (char *)ctx->split_y + (size_t)b*parts->rows[1]*4, (size_t)parts->rows[1]*4);
     ++split_matmuls;
 }
 
@@ -312,9 +311,9 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
     iface.free = [](ggml_backend_t b) {
         std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
         auto * c = (backend_context *)b->context;
-        release(1,c->split_x,c->split_x_size); release(1,c->split_y,c->split_y_size);
-        release(0,c->local_y,c->local_y_size);
-        release(0,c->peer_y,c->peer_y_size);
+        release(1-c->id,c->split_x,c->split_x_size); release(1-c->id,c->split_y,c->split_y_size);
+        release(c->id,c->local_y,c->local_y_size);
+        release(c->id,c->peer_y,c->peer_y_size);
         auto stats=kunlun::statistics();
         GGML_LOG_INFO("KUNLUN stats: pd0_mm=%zu pd1_mm=%zu split_mm=%zu p2p_copies=%zu p2p_bytes=%zu\n",stats.matmuls[0],stats.matmuls[1],split_matmuls.load(),stats.peer_copies,stats.peer_bytes);
         delete c; delete b;
@@ -335,7 +334,9 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
 }
 
 ggml_backend_buffer_type_t split_type(int main_device, const float * fractions) {
-    if (main_device != 0) return nullptr;
+    if (main_device < 0 || main_device > 1) return nullptr;
+    const char * mode=std::getenv("GGML_KUNLUN_ROW_SPLIT");
+    if (main_device == 1 && mode && std::strcmp(mode,"legacy") == 0) return nullptr;
     int count = 0; if (kunlun::device_count(&count) || count != 2) return nullptr;
     double f = .5;
     if (fractions) {
@@ -346,9 +347,9 @@ ggml_backend_buffer_type_t split_type(int main_device, const float * fractions) 
     static std::vector<std::unique_ptr<type_context>> contexts;
     static std::vector<std::unique_ptr<ggml_backend_buffer_type>> types;
     std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
-    for (size_t i=0;i<contexts.size();++i) if (contexts[i]->fraction == f) return types[i].get();
-    contexts.emplace_back(new type_context{0,true,f,"KUNLUN_Split"});
-    types.emplace_back(new ggml_backend_buffer_type{type_iface,&devices[0],contexts.back().get()});
+    for (size_t i=0;i<contexts.size();++i) if (contexts[i]->id == main_device && contexts[i]->fraction == f) return types[i].get();
+    contexts.emplace_back(new type_context{main_device,true,f,"KUNLUN_Split"+std::to_string(main_device)});
+    types.emplace_back(new ggml_backend_buffer_type{type_iface,&devices[main_device],contexts.back().get()});
     return types.back().get();
 }
 } // namespace
