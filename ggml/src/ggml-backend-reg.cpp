@@ -65,6 +65,9 @@
 #ifdef GGML_USE_BLAS
 #include "ggml-blas.h"
 #endif
+#ifdef GGML_USE_KUNLUN
+#include "ggml-kunlun.h"
+#endif
 
 #ifdef GGML_USE_RPC
 #include "ggml-rpc.h"
@@ -158,6 +161,9 @@ struct ggml_backend_registry {
 #endif
 #ifdef GGML_USE_BLAS
         register_backend(ggml_backend_blas_reg());
+#endif
+#ifdef GGML_USE_KUNLUN
+        register_backend(ggml_backend_kunlun_reg());
 #endif
 #ifdef GGML_USE_RPC
         register_backend(ggml_backend_rpc_reg());
@@ -576,6 +582,7 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
 #endif
 
     ggml_backend_load_best("blas", silent, dir_path);
+    ggml_backend_load_best("kunlun", silent, dir_path);
     ggml_backend_load_best("zendnn", silent, dir_path);
     ggml_backend_load_best("cann", silent, dir_path);
     ggml_backend_load_best("cuda", silent, dir_path);

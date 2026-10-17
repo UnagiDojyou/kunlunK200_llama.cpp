@@ -1,0 +1,3 @@
+[submodule "vendor/KunlunK200"]
+	path = vendor/KunlunK200
+	url = git@github.com:UnagiDojyou/kunlunK200_lib.git

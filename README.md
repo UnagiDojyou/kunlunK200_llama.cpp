@@ -1,3 +1,5 @@
+> **Kunlun K200 fork:** see [build and execution notes](README.kunlun.md). The device library is the Git submodule `vendor/KunlunK200`.
+
 # llama.cpp
 
 ![llama](https://raw.githubusercontent.com/ggml-org/llama.brand/refs/heads/master/cover/llama-cpp/cover-llama-cpp-dark.svg)
