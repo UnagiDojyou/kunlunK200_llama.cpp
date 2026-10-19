@@ -4,6 +4,7 @@
 #include <kunlun/k200.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -19,6 +20,16 @@
 namespace {
 std::recursive_mutex & runtime_mutex = kunlun::runtime_mutex();
 std::atomic<size_t> split_matmuls;
+std::atomic<size_t> native_uploads[2], native_upload_bytes[2], native_upload_ns[2];
+std::atomic<size_t> native_sd_total[2], native_cl_total[2], native_cdnn_total[2], native_direct_total[2];
+void log_native_totals() {
+    const char * setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
+    if (!(setting && std::strcmp(setting,"1")==0) && !(native_sd_total[0]+native_sd_total[1]+native_cl_total[0]+native_cl_total[1])) return;
+    for (int id=0;id<2;++id) std::fprintf(stderr,
+        "KUNLUN native totals PD%d: native_sd=%zu native_cl=%zu cdnn=%zu direct_q4=%zu native_uploads=%zu native_upload_bytes=%zu native_setup_ms=%.3f\n",
+        id,native_sd_total[id].load(),native_cl_total[id].load(),native_cdnn_total[id].load(),native_direct_total[id].load(),
+        native_uploads[id].load(),native_upload_bytes[id].load(),native_upload_ns[id].load()/1e6);
+}
 using kunlun::check;
 using kunlun::select;
 using kunlun::allocate;
@@ -31,7 +42,7 @@ struct tensor_parts {
     void * ptr[2] = {};
     size_t bytes[2] = {}, physical[2] = {};
     int rows[2] = {}, k = 0;
-    bool packed = false;
+    bool packed = false, native = false;
     std::vector<char> original;
 };
 struct buffer_context {
@@ -43,6 +54,9 @@ struct buffer_context {
 struct backend_context {
     int id;
     kernel mv[2], ew, gather, kv;
+    kunlun::NativeQ4Workspace native[2];
+    size_t i8_mm[2] = {}, q4_mm[2] = {};
+    bool native_logged[2] = {}, fallback_logged[2] = {};
     void * split_x = nullptr;
     void * split_y = nullptr;
     void * local_y = nullptr;
@@ -63,9 +77,16 @@ buffer_context * buffer_of(const ggml_tensor * t) {
     auto * buf = t->view_src ? t->view_src->buffer : t->buffer;
     return buf && is_ours(buf->buft) ? (buffer_context *)buf->context : nullptr;
 }
+bool use_native(const ggml_tensor * t) {
+    const char * setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
+    return setting && std::strcmp(setting,"1") == 0 && t->type == GGML_TYPE_Q4_0 &&
+        ggml_is_matrix(t) && ggml_is_contiguous(t) && !t->view_src &&
+        t->ne[0] <= INT_MAX && t->ne[1] <= INT_MAX &&
+        kunlun::native_q4_layout_supported(t->ne[0],t->ne[1]);
+}
 bool use_i8(const ggml_tensor * t) {
     const char * setting = std::getenv("GGML_KUNLUN_REQUANT_I8");
-    return setting && std::strcmp(setting,"0") != 0 && t->type == GGML_TYPE_Q4_0 && ggml_is_matrix(t) && !t->view_src &&
+    return !use_native(t) && setting && std::strcmp(setting,"0") != 0 && t->type == GGML_TYPE_Q4_0 && ggml_is_matrix(t) && !t->view_src &&
         t->ne[0] > 0 && t->ne[0] <= 16384 && t->ne[0]%32 == 0 && t->ne[1] > 0 && t->ne[1] <= INT_MAX/t->ne[0];
 }
 size_t packed_size(int k, int n) { return kunlun::packed_i8_size(k,n); }
@@ -76,6 +97,15 @@ void repack(tensor_parts * p, size_t first, size_t last) {
     size_t row_bytes=ggml_row_size(GGML_TYPE_Q4_0,p->k), start=0;
     for (int id=0;id<2;++id) {
         size_t lo=std::max(first,start), hi=std::min(last,start+p->rows[id]);
+        if (p->native) {
+            if (hi > lo) {
+                auto begin=std::chrono::steady_clock::now();
+                kunlun::upload_native_q4(id,p->ptr[id],p->original.data()+start*row_bytes,p->k,p->rows[id]);
+                ++native_uploads[id]; native_upload_bytes[id]+=p->physical[id];
+                native_upload_ns[id]+=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-begin).count();
+            }
+            start+=p->rows[id]; continue;
+        }
         // Bound staging memory while preserving the original Q4_0 bytes for GGML.
         for (size_t r=lo;r<hi;) {
             size_t count=std::min<size_t>(hi-r,64);
@@ -96,7 +126,7 @@ void transfer(ggml_backend_buffer_t buf, const ggml_tensor * t, void * data, siz
     const ggml_tensor * root = t;
     while (root->view_src) root=root->view_src;
     auto * packed = root->type == GGML_TYPE_Q4_0 ? (tensor_parts *)root->extra : nullptr;
-    if (packed && packed->packed) {
+    if (packed && (packed->packed || packed->native)) {
         GGML_ASSERT((uintptr_t)t->data >= (uintptr_t)root->data);
         size_t start = (uintptr_t)t->data - (uintptr_t)root->data + off;
         GGML_ASSERT(start <= packed->original.size() && size <= packed->original.size()-start);
@@ -149,8 +179,24 @@ ggml_backend_buffer_t alloc_buffer(ggml_backend_buffer_type_t bt, size_t size) {
     return ggml_backend_buffer_init(bt, buffer_iface, ctx, size);
 }
 
-void launch_mv(kernel & fn, int id, void * y, const void * w, const void * x, int k, int n, int batch, int type, tensor_parts * packed = nullptr) {
+void launch_mv(backend_context * ctx, int id, void * y, const void * w, const void * x, int k, int n, int batch, int type, tensor_parts * packed = nullptr) {
+    if (packed && packed->native) {
+        bool accelerated=kunlun::native_q4_matmul(ctx->native[id],id,y,w,x,k,n,batch);
+        if (accelerated) ++native_sd_total[id]; else ++native_cl_total[id];
+        if (accelerated && !ctx->native_logged[id]) {
+            std::fprintf(stderr,"KUNLUN native Q4: PD%d %s chunk64 CL16 K=%d N=%d batch=%d\n",id,n%256 ? "compact-n32" : "compact-n64-2d",k,n,batch);
+            ctx->native_logged[id]=true;
+        } else if (!accelerated && !ctx->fallback_logged[id]) {
+            const char * reason=kunlun::native_q4_reason(k,n,batch,kunlun::InputType::f32);
+            std::fprintf(stderr,"KUNLUN native Q4 fallback: PD%d K=%d N=%d batch=%d reason=%s (resident Q4 CL)\n",id,k,n,batch,*reason ? reason : "pointer alignment");
+            ctx->fallback_logged[id]=true;
+        }
+        return;
+    }
+    auto & fn=ctx->mv[id];
     bool i8=packed && packed->packed;
+    if (i8) { ++ctx->i8_mm[id]; ++native_cdnn_total[id]; }
+    else if (type == 2) { ++ctx->q4_mm[id]; ++native_direct_total[id]; }
     kunlun::matmul(fn,id,y,w,x,k,n,batch,(kunlun::WeightType)(i8 ? 3 : type),
         i8 ? scales(packed,id) : nullptr,i8 ? maxima(packed,id) : nullptr,
         std::getenv("GGML_KUNLUN_BASELINE") ? 1 : 16);
@@ -163,7 +209,7 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
     auto * wb=buffer_of(w); auto * parts=(tensor_parts *)w->extra;
     const int main=ctx->id, other=1-main;
     if (!wb || !wb->type->split) {
-        launch_mv(ctx->mv[main],main,dst->data,w->data,x->data,k,n,batch,kernel_type(w->type),parts);
+        launch_mv(ctx,main,dst->data,w->data,x->data,k,n,batch,kernel_type(w->type),parts);
         check(kunlun::wait()); return;
     }
     GGML_ASSERT(parts && wb->type->id == main);
@@ -171,7 +217,7 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
     const int local_offset=main ? parts->rows[0] : 0;
     const int remote_offset=other ? parts->rows[0] : 0;
     if (!remote_rows) {
-        launch_mv(ctx->mv[main],main,dst->data,parts->ptr[main],x->data,k,n,batch,kernel_type(w->type),parts);
+        launch_mv(ctx,main,dst->data,parts->ptr[main],x->data,k,n,batch,kernel_type(w->type),parts);
         check(kunlun::wait()); ++split_matmuls; return;
     }
     size_t xs=(size_t)k*batch*4, ys=(size_t)remote_rows*batch*4;
@@ -185,8 +231,8 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
         GGML_ASSERT(ctx->local_y); local_output=ctx->local_y;
     }
     peer(other,ctx->split_x,main,x->data,xs);
-    if (local_rows) launch_mv(ctx->mv[main],main,local_output,parts->ptr[main],x->data,k,local_rows,batch,kernel_type(w->type),parts);
-    launch_mv(ctx->mv[other],other,ctx->split_y,parts->ptr[other],ctx->split_x,k,remote_rows,batch,kernel_type(w->type),parts);
+    if (local_rows) launch_mv(ctx,main,local_output,parts->ptr[main],x->data,k,local_rows,batch,kernel_type(w->type),parts);
+    launch_mv(ctx,other,ctx->split_y,parts->ptr[other],ctx->split_x,k,remote_rows,batch,kernel_type(w->type),parts);
     select(other); check(kunlun::wait()); select(main); check(kunlun::wait());
     const char * copy_mode=std::getenv("GGML_KUNLUN_ROW_COPY");
     bool legacy=copy_mode && std::strcmp(copy_mode,"legacy") == 0;
@@ -393,6 +439,12 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         release(c->id,c->peer_y,c->peer_y_size);
         auto stats=kunlun::statistics();
         GGML_LOG_INFO("KUNLUN stats: pd0_mm=%zu pd1_mm=%zu split_mm=%zu p2p_copies=%zu p2p_bytes=%zu\n",stats.matmuls[0],stats.matmuls[1],split_matmuls.load(),stats.peer_copies,stats.peer_bytes);
+        for (int id=0;id<2;++id) {
+            auto s=c->native[id].statistics();
+            GGML_LOG_INFO("KUNLUN paths PD%d: native_sd=%zu native_cl=%zu cdnn=%zu direct_q4=%zu scratch_hbm=%zu scratch_l3=%zu native_uploads=%zu native_upload_bytes=%zu native_setup_ms=%.3f hbm_tracked=%zu\n",
+                id,s.accelerated,s.fallback,c->i8_mm[id],c->q4_mm[id],s.hbm_workspace_bytes,s.l3_workspace_bytes,
+                native_uploads[id].load(),native_upload_bytes[id].load(),native_upload_ns[id].load()/1e6,kunlun::allocated_bytes(id));
+        }
         delete c; delete b;
     };
     iface.graph_compute = [](ggml_backend_t b, ggml_cgraph * graph) {
@@ -438,29 +490,36 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
     static ggml_backend_reg reg{};
     static std::once_flag once;
     std::call_once(once, [] {
+        std::atexit(log_native_totals);
         type_iface.get_name = [](ggml_backend_buffer_type_t b) { return ((type_context *)b->context)->name.c_str(); };
         type_iface.alloc_buffer = alloc_buffer;
         type_iface.get_alignment = [](ggml_backend_buffer_type_t) -> size_t { return 256; };
         // KL1 HBM has separate address regions; avoid a single multi-GB allocation.
         type_iface.get_max_size = [](ggml_backend_buffer_type_t) -> size_t { return 1ULL << 30; };
         type_iface.get_alloc_size = [](ggml_backend_buffer_type_t b, const ggml_tensor * t) {
-            return !((type_context *)b->context)->split && use_i8(t) ? packed_size(t->ne[0],t->ne[1]) : ggml_nbytes(t);
+            if (((type_context *)b->context)->split) return ggml_nbytes(t);
+            if (use_native(t)) return kunlun::native_q4_size(t->ne[0],t->ne[1]);
+            return use_i8(t) ? packed_size(t->ne[0],t->ne[1]) : ggml_nbytes(t);
         };
         buffer_iface.get_base = [](ggml_backend_buffer_t b) { return ((buffer_context *)b->context)->base; };
         buffer_iface.init_tensor = [](ggml_backend_buffer_t b, ggml_tensor * t) {
             auto * c = (buffer_context *)b->context;
             if (t->view_src) return GGML_STATUS_SUCCESS;
-            if (!c->type->split && !use_i8(t)) return GGML_STATUS_SUCCESS;
+            const char * native_setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
+            if (native_setting && std::strcmp(native_setting,"1")==0 && t->type==GGML_TYPE_Q4_0 && !use_native(t))
+                std::fprintf(stderr,"KUNLUN native Q4 storage fallback: tensor=%s K=%lld N=%lld reason=outside validated native shape/layout method=%s\n",
+                    t->name,(long long)t->ne[0],(long long)t->ne[1],use_i8(t)?"CDNN":"existing Q4");
+            if (!c->type->split && !use_i8(t) && !use_native(t)) return GGML_STATUS_SUCCESS;
             std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
             auto p = std::unique_ptr<tensor_parts>(new tensor_parts{});
             GGML_ASSERT(ggml_is_matrix(t));
-            p->packed=use_i8(t); p->k=t->ne[0];
-            if (p->packed) p->original.resize(ggml_nbytes(t));
+            p->packed=use_i8(t); p->native=use_native(t); p->k=t->ne[0];
+            if (p->packed || p->native) p->original.resize(ggml_nbytes(t));
             if (c->type->split) { p->rows[0] = t->ne[1] * c->type->fraction; p->rows[1] = t->ne[1] - p->rows[0]; }
             else p->rows[c->type->id]=t->ne[1];
             for (int d=0;d<2;++d) {
                 p->bytes[d] = (size_t)p->rows[d]*ggml_row_size(t->type,t->ne[0]);
-                p->physical[d] = p->packed ? packed_size(p->k,p->rows[d]) : p->bytes[d];
+                p->physical[d] = p->native ? kunlun::native_q4_size(p->k,p->rows[d]) : p->packed ? packed_size(p->k,p->rows[d]) : p->bytes[d];
                 if (p->bytes[d]) {
                     p->ptr[d] = c->type->split ? allocate(d,p->physical[d]) : t->data;
                     if (!p->ptr[d]) { for(int j=0;j<d;++j) release(j,p->ptr[j],p->physical[j]); return GGML_STATUS_ALLOC_FAILED; }
@@ -485,13 +544,13 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
             auto * c = (buffer_context *)b->context;
             if (c->type->split) {
                 for (auto & p : c->tensors) {
-                    if (p->packed) { std::fill(p->original.begin(),p->original.end(),v); repack(p.get(),0,p->rows[0]+p->rows[1]); }
+                    if (p->packed || p->native) { std::fill(p->original.begin(),p->original.end(),v); repack(p.get(),0,p->rows[0]+p->rows[1]); }
                     else for (int d=0;d<2;++d) clear_device(d,p->ptr[d],p->physical[d],v);
                 }
                 return;
             }
             clear_device(c->type->id,c->base,c->size,v);
-            for (auto & p : c->tensors) if (p->packed) { std::fill(p->original.begin(),p->original.end(),v); repack(p.get(),0,p->rows[0]+p->rows[1]); }
+            for (auto & p : c->tensors) if (p->packed || p->native) { std::fill(p->original.begin(),p->original.end(),v); repack(p.get(),0,p->rows[0]+p->rows[1]); }
         };
         buffer_iface.cpy_tensor = [](ggml_backend_buffer_t b, const ggml_tensor * src, ggml_tensor * dst) {
             auto * s = buffer_of(src); auto * d = (buffer_context *)b->context;

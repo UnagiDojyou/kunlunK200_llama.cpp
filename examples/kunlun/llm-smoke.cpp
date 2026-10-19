@@ -10,6 +10,8 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <dlfcn.h>
+#include <sys/resource.h>
 
 using Clock=std::chrono::steady_clock;
 static double elapsed(Clock::time_point start) { return std::chrono::duration<double,std::milli>(Clock::now()-start).count(); }
@@ -44,11 +46,13 @@ int main(int argc,char **argv) {
     float split[2]={1,1};auto mp=llama_model_default_params();
     mp.devices=devices;mp.n_gpu_layers=cpu?0:99;mp.main_gpu=0;mp.tensor_split=split;
     mp.split_mode=!std::strcmp(mode,"row")?LLAMA_SPLIT_MODE_ROW:!std::strcmp(mode,"layer")?LLAMA_SPLIT_MODE_LAYER:LLAMA_SPLIT_MODE_NONE;
+    setenv("K200_PROFILE_PHASE","model",1);
     start=Clock::now();auto *model=llama_model_load_from_file(argv[1],mp);if(!model)return 1;
     double model_ms=elapsed(start);auto cp=llama_context_default_params();
     cp.n_ctx=setting("K200_CTX",256);cp.n_batch=setting("K200_BATCH",8);cp.n_ubatch=setting("K200_UBATCH",8);
     cp.n_threads=6;cp.n_threads_batch=6;cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;
     cp.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_DISABLED;cp.no_perf=false;
+    setenv("K200_PROFILE_PHASE","context",1);
     start=Clock::now();auto *ctx=llama_init_from_model(model,cp);if(!ctx)return 1;
     double context_ms=elapsed(start);auto *vocab=llama_model_get_vocab(model);
     std::vector<llama_token>teacher,tokens;
@@ -81,9 +85,12 @@ int main(int argc,char **argv) {
     };
     int repeats=setting("K200_REPEATS",1),warmup=std::getenv("K200_WARMUP")?1:0;
     for(int trial=-warmup;trial<repeats;++trial){
+        setenv("K200_PROFILE_PHASE","clear",1);
         if(trial!=-warmup)llama_memory_clear(llama_get_memory(ctx),true);
         llama_perf_context_reset(ctx);
+        rusage cpu_start{};getrusage(RUSAGE_SELF,&cpu_start);
         float *logits=nullptr;double pp_ms=0,tg_ms=0,first_ms=0;int decode_steps=0;
+        setenv("K200_PROFILE_PHASE",trial<0?"warmup.pp":"pp",1);
         for(size_t pos=0;pos<tokens.size();){
             int count=std::min<size_t>(cp.n_batch,tokens.size()-pos);
             start=Clock::now();logits=process(tokens.data()+pos,count,pos);double ms=elapsed(start);
@@ -91,6 +98,7 @@ int main(int argc,char **argv) {
             if(!pos)first_ms=ms;
             pp_ms+=ms;pos+=count;
         }
+        setenv("K200_PROFILE_PHASE",trial<0?"warmup.tg":"tg",1);
         FILE *dump=nullptr;
         if(argc>4 && trial>=0){
             std::string file=argv[4];if(trial)file+="."+std::to_string(trial);
@@ -112,9 +120,15 @@ int main(int argc,char **argv) {
         if(dump)std::fclose(dump);
         if(trial>=0){
             std::printf("\n");std::fprintf(stderr,"TOKENS mode=%s",mode);for(auto id:generated)std::fprintf(stderr," %d",id);std::fprintf(stderr,"\n");
+            rusage cpu_end{};getrusage(RUSAGE_SELF,&cpu_end);
+            double user_ms=(cpu_end.ru_utime.tv_sec-cpu_start.ru_utime.tv_sec)*1000.+(cpu_end.ru_utime.tv_usec-cpu_start.ru_utime.tv_usec)/1000.;
+            double sys_ms=(cpu_end.ru_stime.tv_sec-cpu_start.ru_stime.tv_sec)*1000.+(cpu_end.ru_stime.tv_usec-cpu_start.ru_stime.tv_usec)/1000.;
+            std::fprintf(stderr,"K200CPU trial=%d user_ms=%.6f sys_ms=%.6f percent=%.3f\n",trial,user_ms,sys_ms,100*(user_ms+sys_ms)/(pp_ms+tg_ms));
             std::fprintf(stderr,"K200PERF trial=%d pp_ms=%.6f pp_tokens=%zu tg_ms=%.6f tg_steps=%d first_process_ms=%.6f\n",trial,pp_ms,tokens.size(),tg_ms,decode_steps,first_ms);
             llama_perf_context_print(ctx);
         }
     }
+    if(auto emit=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_emit"))emit();
+    if(auto memory=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_memory"))memory();
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
 }

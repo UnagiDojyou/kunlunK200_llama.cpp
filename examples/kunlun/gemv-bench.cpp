@@ -84,12 +84,17 @@ int main(int argc, char ** argv) {
     ggml_backend_tensor_get(y,out.data(),0,out.size()*4);
     const char * setting = std::getenv("GGML_KUNLUN_REQUANT_I8");
     bool requant = setting && std::strcmp(setting,"0") != 0 && type == GGML_TYPE_Q4_0;
+    const char * native_setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
+    bool native=native_setting && std::strcmp(native_setting,"1")==0 && type==GGML_TYPE_Q4_0 && k<=16384 && n<=90000000/k;
+    requant=requant && !native;
     double maxerr=0,sqerr=0,sqref=0;
     for(size_t i=0;i<out.size();++i) {
         double err=std::abs(out[i]-ref[i]); maxerr=std::max(maxerr,err); sqerr+=err*err; sqref+=(double)ref[i]*ref[i];
         if(!std::isfinite(out[i]) || err>(requant ? .02 : .001)*(1+std::abs(ref[i]))) { fprintf(stderr,"FAIL idx=%zu got=%g ref=%g\n",i,out[i],ref[i]);return 1; }
     }
     if (requant && sqerr/(sqref+1e-30) > 1e-3) { fprintf(stderr,"FAIL requantization NMSE=%g\n",sqerr/(sqref+1e-30)); return 1; }
+    if (native && sqerr/(sqref+1e-30) > 1e-6) return 1;
+    if (native) printf("Native Q4 profile: original weights, CPU reference NMSE limit 1e-6\n");
     if (requant) printf("CDNN rowwise INT8 requantization: max per-output error 2%%*(1+abs(reference)), NMSE limit 1e-3\n");
     auto begin=std::chrono::steady_clock::now();
     const int runs=5;

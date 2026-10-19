@@ -38,5 +38,22 @@ int main() {
     saved=rows->nb[0];rows->nb[0]=2;
     GGML_ASSERT(!ggml_backend_dev_supports_op(device,update));rows->nb[0]=saved;
     std::printf("operation=SET_ROWS overlapping/misaligned layout placement=CPU PASS\n");
+    auto * q4=ggml_new_tensor_2d(context,GGML_TYPE_Q4_0,544,513);
+    for (int batch : {1,8,32}) {
+        auto * x=ggml_new_tensor_2d(context,GGML_TYPE_F32,544,batch);
+        auto * y=ggml_mul_mat(context,q4,x);
+        GGML_ASSERT(ggml_backend_dev_supports_op(device,y));
+        size_t stride=x->nb[0];x->nb[0]=8;
+        GGML_ASSERT(!ggml_backend_dev_supports_op(device,y));x->nb[0]=stride;
+    }
+    auto * f16_input=ggml_new_tensor_2d(context,GGML_TYPE_F16,544,1);
+    GGML_ASSERT(!ggml_backend_dev_supports_op(device,ggml_mul_mat(context,q4,f16_input)));
+    auto * f32_input=ggml_new_tensor_2d(context,GGML_TYPE_F32,544,1);
+    auto * view=ggml_view_2d(context,q4,544,256,q4->nb[1],0);
+    GGML_ASSERT(!ggml_backend_dev_supports_op(device,ggml_mul_mat(context,view,f32_input)));
+    auto * too_wide=ggml_new_tensor_2d(context,GGML_TYPE_Q4_0,17408,128);
+    auto * wide_input=ggml_new_tensor_2d(context,GGML_TYPE_F32,17408,1);
+    GGML_ASSERT(!ggml_backend_dev_supports_op(device,ggml_mul_mat(context,too_wide,wide_input)));
+    std::printf("operation=MUL_MAT batch/stride/F16-input/view/K placement PASS\n");
     ggml_free(context);
 }

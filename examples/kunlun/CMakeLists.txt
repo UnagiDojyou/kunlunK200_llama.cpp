@@ -2,7 +2,7 @@ add_executable(kunlun-gemv-bench gemv-bench.cpp)
 target_include_directories(kunlun-gemv-bench PRIVATE ../../ggml/include ../../ggml/src)
 target_link_libraries(kunlun-gemv-bench PRIVATE ggml ggml-base)
 add_executable(kunlun-llm-smoke llm-smoke.cpp)
-target_link_libraries(kunlun-llm-smoke PRIVATE llama ggml ggml-base)
+target_link_libraries(kunlun-llm-smoke PRIVATE llama ggml ggml-base ${CMAKE_DL_LIBS})
 add_executable(kunlun-backend-contract backend-contract.cpp)
 target_link_libraries(kunlun-backend-contract PRIVATE ggml ggml-base)
 
