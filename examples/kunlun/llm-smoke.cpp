@@ -8,6 +8,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <string>
 #include <vector>
 #include <dlfcn.h>
@@ -29,7 +30,25 @@ static std::vector<llama_token> read_ids(const char *file,const llama_vocab *voc
     if(!input.eof())std::exit(2);
     return ids;
 }
-int main(int argc,char **argv) {
+// Diagnostic only: scheduler callbacks synchronize each observed node.
+// Never use these perturbed times as the primary end-to-end benchmark.
+struct OpTrace {
+    struct Value { size_t calls=0; double ms=0; };
+    Clock::time_point start;
+    std::map<std::string,Value> values;
+};
+static bool trace_op(ggml_tensor * node,bool ask,void * opaque) {
+    auto & trace=*static_cast<OpTrace *>(opaque);
+    if(ask) { trace.start=Clock::now(); return true; }
+    double ms=elapsed(trace.start);
+    const char *phase=std::getenv("K200_PROFILE_PHASE");
+    std::string key=std::string(phase?phase:"other")+"|"+ggml_op_name(node->op)+"|"+
+        (node->buffer?ggml_backend_buffer_name(node->buffer):"view")+"|"+
+        (node->src[0]?ggml_type_name(node->src[0]->type):"none")+"|"+
+        std::to_string(node->ne[0])+"x"+std::to_string(node->ne[1]);
+    auto & v=trace.values[key];++v.calls;v.ms+=ms;return true;
+}
+static int smoke_run(int argc,char **argv) {
     if(argc<3){std::fprintf(stderr,"usage: %s model.gguf cpu|none|layer|row [positions] [logits.bin] [device]\n",argv[0]);return 2;}
     const char *mode=argv[2];bool cpu=std::strcmp(mode,"cpu")==0;
     if(!cpu && std::strcmp(mode,"none") && std::strcmp(mode,"layer") && std::strcmp(mode,"row"))return 2;
@@ -52,6 +71,8 @@ int main(int argc,char **argv) {
     cp.n_ctx=setting("K200_CTX",256);cp.n_batch=setting("K200_BATCH",8);cp.n_ubatch=setting("K200_UBATCH",8);
     cp.n_threads=6;cp.n_threads_batch=6;cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;
     cp.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_DISABLED;cp.no_perf=false;
+    OpTrace trace;
+    if(std::getenv("K200_TRACE_OPS")) { cp.cb_eval=trace_op;cp.cb_eval_user_data=&trace; }
     setenv("K200_PROFILE_PHASE","context",1);
     start=Clock::now();auto *ctx=llama_init_from_model(model,cp);if(!ctx)return 1;
     double context_ms=elapsed(start);auto *vocab=llama_model_get_vocab(model);
@@ -74,7 +95,8 @@ int main(int argc,char **argv) {
         tokens.resize(nt);if(llama_tokenize(vocab,prompt.data(),prompt.size(),tokens.data(),nt,true,true)!=nt)return 2;
     }
     if(tokens.empty() || tokens.size()+predict-1>cp.n_ctx)return 2;
-    std::fprintf(stderr,"K200INIT backend_ms=%.3f model_ms=%.3f context_ms=%.3f ctx=%u batch=%u ubatch=%u prompt_tokens=%zu positions=%d teacher_forced=%d\n",backend_ms,model_ms,context_ms,cp.n_ctx,cp.n_batch,cp.n_ubatch,tokens.size(),predict,!teacher.empty());
+    std::fprintf(stderr,"K200INPUT");for(auto id:tokens)std::fprintf(stderr," %d",id);std::fprintf(stderr,"\n");
+    std::fprintf(stderr,"K200INIT backend_ms=%.3f model_ms=%.3f context_ms=%.3f ctx=%u batch=%u ubatch=%u prompt_tokens=%zu positions=%d teacher_forced=%d\n",backend_ms,model_ms,context_ms,cp.n_ctx,cp.n_batch,cp.n_ubatch,tokens.size(),predict,!teacher.empty() || std::getenv("K200_TEACHER_DIR"));
     auto *batch=llama_batch_ext_init(ctx);
     auto process=[&](const llama_token *ids,int count,int pos){
         llama_batch_ext_clear(batch);
@@ -83,10 +105,24 @@ int main(int argc,char **argv) {
         if(llama_process(ctx,LLAMA_PROCESS_TYPE_DECODE,batch))return (float *)nullptr;
         return llama_get_logits_ith(ctx,-1);
     };
-    int repeats=setting("K200_REPEATS",1),warmup=std::getenv("K200_WARMUP")?1:0;
+    int repeats=setting("K200_REPEATS",1),warmup=std::getenv("K200_WARMUP") && std::strcmp(std::getenv("K200_WARMUP"),"0")!=0;
+    const auto all_tokens=tokens;
+    std::vector<size_t> lengths;
+    if(const char * raw=std::getenv("K200_PP_LENGTHS")) {
+        while(*raw){if(*raw==' ' || *raw==','){++raw;continue;}char *end=nullptr;long v=std::strtol(raw,&end,10);
+            if(end==raw || v<1 || (size_t)v>all_tokens.size())return 2;
+            lengths.push_back(v);raw=end;
+        }
+    } else lengths.push_back(all_tokens.size());
+    for(size_t length:lengths) {
+    tokens.assign(all_tokens.begin(),all_tokens.begin()+length);
+    if(const char *dir=std::getenv("K200_TEACHER_DIR")) {
+        std::string file=std::string(dir)+"/p"+std::to_string(length)+".ids";
+        teacher=read_ids(file.c_str(),vocab);if((int)teacher.size()<predict)return 2;
+    }
     for(int trial=-warmup;trial<repeats;++trial){
         setenv("K200_PROFILE_PHASE","clear",1);
-        if(trial!=-warmup)llama_memory_clear(llama_get_memory(ctx),true);
+        llama_memory_clear(llama_get_memory(ctx),true);
         llama_perf_context_reset(ctx);
         rusage cpu_start{};getrusage(RUSAGE_SELF,&cpu_start);
         float *logits=nullptr;double pp_ms=0,tg_ms=0,first_ms=0;int decode_steps=0;
@@ -100,8 +136,8 @@ int main(int argc,char **argv) {
         }
         setenv("K200_PROFILE_PHASE",trial<0?"warmup.tg":"tg",1);
         FILE *dump=nullptr;
-        if(argc>4 && trial>=0){
-            std::string file=argv[4];if(trial)file+="."+std::to_string(trial);
+        if(argc>4 && trial>=0 && !std::getenv("K200_NO_DUMP")){
+            std::string file=argv[4];if(lengths.size()>1)file+=".p"+std::to_string(length);if(trial)file+="."+std::to_string(trial);
             dump=std::fopen(file.c_str(),"wb");if(!dump)return 1;
         }
         std::vector<llama_token>generated;int nv=llama_vocab_n_tokens(vocab);
@@ -128,7 +164,20 @@ int main(int argc,char **argv) {
             llama_perf_context_print(ctx);
         }
     }
+    }
     if(auto emit=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_emit"))emit();
     if(auto memory=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_memory"))memory();
+    for(const auto & item:trace.values)std::fprintf(stderr,"K200OP key=%s calls=%zu ms=%.6f\n",item.first.c_str(),item.second.calls,item.second.ms);
+    setenv("K200_PROFILE_PHASE","cleanup",1);
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
+    return 0;
+}
+
+int main(int argc,char **argv) {
+    int reloads=setting("K200_MODEL_RELOADS",1);
+    for(int i=0;i<reloads;++i) {
+        std::fprintf(stderr,"K200RELOAD index=%d\n",i);
+        int rc=smoke_run(argc,argv);if(rc)return rc;
+    }
+    return 0;
 }
