@@ -3,6 +3,7 @@
 #include "ggml-alloc.h"
 #include "ggml-impl.h"
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -76,8 +77,16 @@ int main(int argc, char ** argv) {
         GGML_ASSERT(std::memcmp(viewed.data(),packed.data()+bytes,bytes)==0);
     }
     ggml_backend_tensor_set(x,xf.data(),0,xf.size()*4);
+    auto represented=xf;
+    const char *common_setting=std::getenv("GGML_KUNLUN_COMMON_Q4");
+    bool common=common_setting && !std::strcmp(common_setting,"1") && type==GGML_TYPE_Q4_0 && k<=16384 && n<=32000;
+    if(common && batch>1) for(int b=0;b<batch;++b) {
+        float mx=0;for(int j=0;j<k;++j)mx=std::max(mx,std::abs(xf[(size_t)b*k+j]));if(mx==0)mx=1;
+        float inv=127.f/mx,scale=mx/127.f;
+        for(int j=0;j<k;++j){float v=xf[(size_t)b*k+j]*inv;int q=std::max(-127,std::min(127,(int)(v+(v>=0?.5f:-.5f))));represented[(size_t)b*k+j]=q*scale;}
+    }
     for(int b=0;b<batch;++b) for(int r=0;r<n;++r) {
-        double s=0; for(int j=0;j<k;++j)s+=(double)wf[(size_t)r*k+j]*xf[(size_t)b*k+j];
+        double s=0; for(int j=0;j<k;++j)s+=(double)wf[(size_t)r*k+j]*represented[(size_t)b*k+j];
         ref[(size_t)b*n+r]=s;
     }
     for(int i=0;i<2;++i) GGML_ASSERT(ggml_backend_graph_compute(backend,graph)==GGML_STATUS_SUCCESS);
@@ -86,12 +95,14 @@ int main(int argc, char ** argv) {
     bool requant = setting && std::strcmp(setting,"0") != 0 && type == GGML_TYPE_Q4_0;
     const char * native_setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
     bool native=native_setting && std::strcmp(native_setting,"1")==0 && type==GGML_TYPE_Q4_0 && k<=16384 && n<=90000000/k;
-    requant=requant && !native;
+    native=native && !common;requant=requant && !native && !common;
     double maxerr=0,sqerr=0,sqref=0;
     for(size_t i=0;i<out.size();++i) {
         double err=std::abs(out[i]-ref[i]); maxerr=std::max(maxerr,err); sqerr+=err*err; sqref+=(double)ref[i]*ref[i];
         if(!std::isfinite(out[i]) || err>(requant ? .02 : .001)*(1+std::abs(ref[i]))) { fprintf(stderr,"FAIL idx=%zu got=%g ref=%g\n",i,out[i],ref[i]);return 1; }
     }
+    if (common && sqerr/(sqref+1e-30) > (batch>1?1e-10:1e-6)) return 1;
+    if (common) printf("Common Q4: Row A8 reference for M>1; two-component tolerance for M=1\n");
     if (requant && sqerr/(sqref+1e-30) > 1e-3) { fprintf(stderr,"FAIL requantization NMSE=%g\n",sqerr/(sqref+1e-30)); return 1; }
     if (native && sqerr/(sqref+1e-30) > 1e-6) return 1;
     if (native) printf("Native Q4 profile: original weights, CPU reference NMSE limit 1e-6\n");
