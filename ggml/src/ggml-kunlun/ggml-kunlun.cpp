@@ -386,7 +386,7 @@ bool contiguous_cache_rows(const ggml_tensor * dst, const ggml_tensor * src, con
         idx->nb[0] != ggml_type_size(idx->type) || idx->ne[1] != 1 || idx->ne[2] != 1 ||
         dst->ne[1] != root->ne[0]*root->ne[1] || src->ne[1]%root->ne[0]) return false;
     int64_t features=root->ne[0], stride=root->ne[1], tokens=src->ne[1]/features;
-    if (tokens < 1 || tokens > 32) return false;
+    if (tokens < 1 || tokens > stride) return false;
     auto index=[&](int64_t row) {
         int64_t value;
         if (idx->type == GGML_TYPE_I64) std::memcpy(&value,indices.data()+row*idx->nb[0],8);

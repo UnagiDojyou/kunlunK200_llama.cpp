@@ -103,3 +103,5 @@ KunlunK200 0.2 or newer is required for installed-library builds. The submodule 
 ## Native Q4_0 (opt-in)
 
 Set `GGML_KUNLUN_NATIVE_Q4=1` before model loading to select the KunlunK200 0.3 native path for supported Q4_0 tensors. Existing defaults are preserved. See [selection priority, limitations, split behavior and commands](../../../examples/kunlun/NATIVE_Q4.md). Batched CL fallback can be substantially slower; compare both accuracy and measured PP/TG before choosing a profile.
+
+See [F16 KV cache SET_ROWS](SET-ROWS.md).
