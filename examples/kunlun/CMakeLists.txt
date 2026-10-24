@@ -8,3 +8,6 @@ target_link_libraries(kunlun-backend-contract PRIVATE ggml ggml-base)
 
 add_executable(kunlun-quality-eval quality-eval.cpp)
 target_link_libraries(kunlun-quality-eval PRIVATE llama ggml ggml-base)
+
+add_executable(kunlun-swiglu-test swiglu-test.cpp)
+target_link_libraries(kunlun-swiglu-test PRIVATE ggml ggml-base)

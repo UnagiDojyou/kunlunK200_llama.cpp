@@ -79,7 +79,10 @@ struct buffer_context {
 };
 struct backend_context {
     int id;
-    kernel mv[2], ew, gather, kv;
+    kernel mv[2], ew, gather, kv, glu;
+    size_t glu_calls=0, glu_elements=0;
+    std::map<std::string,size_t> glu_phases;
+    std::map<int,size_t> glu_rows;
     kunlun::NativeQ4Workspace native[2];
     kunlun::CommonQ4Workspace common[2];
     size_t i8_mm[2] = {}, q4_mm[2] = {};
@@ -313,6 +316,61 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
     ++split_matmuls;
 }
 
+bool swiglu_enabled() {
+    const char *mode=std::getenv("GGML_KUNLUN_SWIGLU");
+    return mode && (!std::strcmp(mode,"1") || !std::strcmp(mode,"pp"));
+}
+bool glu_rows_contiguous(const ggml_tensor *t) {
+    size_t bytes=ggml_type_size(t->type);
+    if(t->nb[0]!=bytes || t->nb[1]<t->ne[0]*bytes || t->nb[1]>INT_MAX || t->nb[1]%bytes)return false;
+    size_t stride=t->nb[1];
+    for(int d=2;d<4;++d) {
+        stride*=t->ne[d-1];
+        if(t->ne[d]>1 && t->nb[d]!=stride)return false;
+    }
+    return true;
+}
+const char * glu_reason(const ggml_tensor *t) {
+    if(!swiglu_enabled())return "disabled";
+    if(!std::strcmp(std::getenv("GGML_KUNLUN_SWIGLU"),"pp") && ggml_nrows(t)==1)return "single-row CPU policy";
+    if(ggml_get_glu_op(t)!=GGML_GLU_OP_SWIGLU)return "GLU variant";
+    const auto *a=t->src[0],*b=t->src[1];
+    if(!a || (t->type!=GGML_TYPE_F32 && t->type!=GGML_TYPE_F16) || a->type!=t->type || (b && b->type!=t->type))return "type";
+    for(const auto *v:{t,a,b})if(v) {
+        for(int d=0;d<4;++d)if(v->ne[d]<=0)return "shape";
+        if(ggml_nelements(v)>int64_t(INT_MAX/ggml_type_size(v->type)) || ggml_nbytes(v)>INT_MAX)return "byte extent";
+        size_t element=ggml_type_size(v->type);
+        if(v->view_offs%element || (v->data && (uintptr_t)v->data%element))return "alignment";
+        if(!glu_rows_contiguous(v))return "stride";
+    }
+    if(t->ne[0]>65536 || (b && !ggml_are_same_shape(a,b)))return "shape";
+    for(int d=1;d<4;++d)if(t->ne[d]!=a->ne[d])return "shape";
+    if(a->ne[0]!=(b?t->ne[0]:2*t->ne[0]))return "packed width";
+    int32_t swapped;std::memcpy(&swapped,t->op_params+1,4);
+    if(!b && swapped!=0 && swapped!=1)return "swapped flag";
+    kunlun::SwiGLULayout layout{(int)t->ne[0],(int)ggml_nrows(t),(int)a->nb[1],(int)(b?b->nb[1]:a->nb[1]),(int)t->nb[1],
+        t->type==GGML_TYPE_F32?kunlun::InputType::f32:kunlun::InputType::f16};
+    return kunlun::swiglu_reason(layout);
+}
+void swiglu(backend_context *ctx,ggml_tensor *dst) {
+    GGML_ASSERT(!*glu_reason(dst));
+    const auto *a=dst->src[0],*b=dst->src[1];
+    for(const auto *t:{(const ggml_tensor*)dst,a,b})if(t) {
+        const auto *buffer=buffer_of(t);GGML_ASSERT(buffer && !buffer->type->split && buffer->type->id==ctx->id);
+    }
+    int32_t swapped;std::memcpy(&swapped,dst->op_params+1,4);
+    size_t half=(size_t)dst->ne[0]*ggml_type_size(dst->type);
+    size_t go=b?0:(swapped?half:0),uo=b?0:(swapped?0:half);
+    const void *gate=(const char*)a->data+go,*up=(const char*)(b?b->data:a->data)+uo;
+    kunlun::SwiGLULayout p{(int)dst->ne[0],(int)ggml_nrows(dst),(int)a->nb[1],(int)(b?b->nb[1]:a->nb[1]),(int)dst->nb[1],
+        dst->type==GGML_TYPE_F32?kunlun::InputType::f32:kunlun::InputType::f16};
+    if(!kunlun::swiglu(ctx->glu,ctx->id,dst->data,ggml_nbytes(dst),gate,ggml_nbytes(a)-go,up,ggml_nbytes(b?b:a)-uo,p))
+        GGML_ABORT("KUNLUN SwiGLU %s pointer/layout contract failed on PD%d",dst->name,ctx->id);
+    ++ctx->glu_calls;ctx->glu_elements+=ggml_nelements(dst);
+    const char *phase=std::getenv("K200_PROFILE_PHASE");++ctx->glu_phases[phase?phase:"other"];
+    if(!ctx->glu_rows[p.rows]++)std::fprintf(stderr,"KUNLUN SwiGLU PD%d: width=%d rows=%d type=%s packed=%d device_resident=1\n",ctx->id,p.width,p.rows,ggml_type_name(dst->type),!b);
+}
+
 void elementwise(backend_context * ctx, ggml_tensor * dst) {
     const void * a=dst->src[0]->data;
     const void * b=dst->src[1] ? dst->src[1]->data : a;
@@ -446,6 +504,18 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
         }
     }
     if (!a) return false;
+    if (t->op == GGML_OP_GLU) {
+        const char *reason=glu_reason(t);
+        if(*reason && swiglu_enabled() && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
+            std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
+            static std::map<std::string,bool> reported;
+            if(!reported[reason]) {
+                std::fprintf(stderr,"KUNLUN SwiGLU placement: CPU reason=%s tensor=%s type=%s\n",reason,t->name,ggml_type_name(t->type));
+                reported[reason]=true;
+            }
+        }
+        return !*reason;
+    }
     if (t->op == GGML_OP_SET_ROWS) {
         auto * destination = t->view_src ? t->view_src->buffer : t->buffer;
         if (destination && !is_ours(destination->buft)) return false;
@@ -503,6 +573,8 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
                 id,s.accelerated,s.fallback,c->i8_mm[id],c->q4_mm[id],s.hbm_workspace_bytes,s.l3_workspace_bytes,
                 native_uploads[id].load(),native_upload_bytes[id].load(),native_upload_ns[id].load()/1e6,kunlun::allocated_bytes(id));
         }
+        std::fprintf(stderr,"KUNLUN SwiGLU totals PD%d: calls=%zu elements=%zu\n",c->id,c->glu_calls,c->glu_elements);
+        for(const auto &v:c->glu_phases)std::fprintf(stderr,"KUNLUN SwiGLU phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
         delete c; delete b;
     };
     iface.graph_compute = [](ggml_backend_t b, ggml_cgraph * graph) {
@@ -513,6 +585,7 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
             kunlun::diagnostic_tensor(t->name,t->ne);
             if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
             else if (t->op == GGML_OP_SET_ROWS) set_rows(c,t);
+            else if (t->op == GGML_OP_GLU) swiglu(c,t);
             else if (t->op == GGML_OP_ADD || t->op == GGML_OP_MUL || t->op == GGML_OP_RMS_NORM || t->op == GGML_OP_UNARY || t->op == GGML_OP_SCALE) elementwise(c,t);
             else GGML_ASSERT(t->op == GGML_OP_NONE || t->op == GGML_OP_VIEW || t->op == GGML_OP_RESHAPE || t->op == GGML_OP_PERMUTE || t->op == GGML_OP_TRANSPOSE);
         }
@@ -550,6 +623,9 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
     std::call_once(once, [] {
         std::atexit(log_native_totals);
         std::atexit(log_common_totals);
+        const char *glu_setting=std::getenv("GGML_KUNLUN_SWIGLU");
+        if(glu_setting && std::strcmp(glu_setting,"0") && std::strcmp(glu_setting,"1") && std::strcmp(glu_setting,"pp"))
+            std::fprintf(stderr,"KUNLUN SwiGLU disabled: invalid GGML_KUNLUN_SWIGLU=%s (expected 0, 1 or pp)\n",glu_setting);
         const char * common_setting=std::getenv("GGML_KUNLUN_COMMON_Q4");
         if (common_setting && std::strcmp(common_setting,"0") && std::strcmp(common_setting,"1"))
             std::fprintf(stderr,"KUNLUN common Q4 disabled: invalid GGML_KUNLUN_COMMON_Q4=%s (expected 0 or 1)\n",common_setting);
