@@ -46,6 +46,18 @@ static bool trace_op(ggml_tensor * node,bool ask,void * opaque) {
         (node->buffer?ggml_backend_buffer_name(node->buffer):"view")+"|"+
         (node->src[0]?ggml_type_name(node->src[0]->type):"none")+"|"+
         std::to_string(node->ne[0])+"x"+std::to_string(node->ne[1]);
+    if(const char *dir=std::getenv("K200_CAPTURE_GLU")) {
+        int layer=std::getenv("K200_CAPTURE_LAYER")?std::atoi(std::getenv("K200_CAPTURE_LAYER")):0;
+        bool chosen=false;
+        for(const char *prefix:{"ffn_norm","ffn_gate","ffn_up","ffn_swiglu","ffn_down","ffn_out","l_out"})
+            chosen=chosen || (layer<0?std::string(node->name).find(std::string(prefix)+"-")==0:std::string(node->name)==std::string(prefix)+"-"+std::to_string(layer));
+        if(chosen && phase && !std::strcmp(phase,"pp") && node->type==GGML_TYPE_F32) {
+            std::vector<char>raw(ggml_nbytes(node));ggml_backend_tensor_get(node,raw.data(),0,raw.size());
+            std::string file=std::string(dir)+"/"+node->name+".bin";
+            FILE *f=std::fopen(file.c_str(),"wb");if(!f || std::fwrite(raw.data(),1,raw.size(),f)!=raw.size())std::exit(2);std::fclose(f);
+            std::fprintf(stderr,"K200CAP name=%s bytes=%zu shape=%lldx%lldx%lldx%lld\n",node->name,raw.size(),(long long)node->ne[0],(long long)node->ne[1],(long long)node->ne[2],(long long)node->ne[3]);
+        }
+    }
     auto & v=trace.values[key];++v.calls;v.ms+=ms;return true;
 }
 static int smoke_run(int argc,char **argv) {
@@ -134,6 +146,22 @@ static int smoke_run(int argc,char **argv) {
             if(!pos)first_ms=ms;
             pp_ms+=ms;pos+=count;
         }
+        std::vector<float> state_logits;
+        if(std::getenv("K200_CHECK_STATE")) {
+            setenv("K200_PROFILE_PHASE","state_check",1);
+            int nv=llama_vocab_n_tokens(vocab);state_logits.assign(logits,logits+nv);
+            size_t bytes=llama_state_get_size(ctx);if(!bytes || bytes>size_t(4)*1024*1024*1024)return 1;
+            std::vector<uint8_t> state(bytes);
+            size_t saved=llama_state_get_data(ctx,state.data(),state.size());if(!saved || saved>state.size())return 1;
+            state.resize(saved);
+            llama_token next=std::max_element(state_logits.begin(),state_logits.end())-state_logits.begin();
+            float *first=process(&next,1,tokens.size());if(!first)return 1;std::vector<float> expected(first,first+nv);
+            if(llama_state_set_data(ctx,state.data(),state.size())!=state.size())return 1;
+            float *second=process(&next,1,tokens.size());if(!second || std::memcmp(expected.data(),second,nv*sizeof(float)))return 1;
+            if(llama_state_set_data(ctx,state.data(),state.size())!=state.size())return 1;
+            logits=state_logits.data();
+            std::fprintf(stderr,"K200STATE bytes=%zu next_token=%d restored_next_logits_bitwise=1\n",state.size(),next);
+        }
         setenv("K200_PROFILE_PHASE",trial<0?"warmup.tg":"tg",1);
         FILE *dump=nullptr;
         if(argc>4 && trial>=0 && !std::getenv("K200_NO_DUMP")){
@@ -168,6 +196,7 @@ static int smoke_run(int argc,char **argv) {
     if(auto emit=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_emit"))emit();
     if(auto memory=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_memory"))memory();
     for(const auto & item:trace.values)std::fprintf(stderr,"K200OP key=%s calls=%zu ms=%.6f\n",item.first.c_str(),item.second.calls,item.second.ms);
+    rusage memory{};getrusage(RUSAGE_SELF,&memory);std::fprintf(stderr,"K200RSS peak_kib=%ld\n",memory.ru_maxrss);
     setenv("K200_PROFILE_PHASE","cleanup",1);
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
     return 0;

@@ -62,7 +62,13 @@ int main(int argc,char **argv) {
     {std::ifstream in(argv[3]);long id;while(in>>id){if(id<0 || id>=nv)return 2;ids.push_back(id);}if(!in.eof())return 2;}
     int ctx_size=std::atoi(argv[4]);if(ctx_size<32 || ctx_size>1024 || ids.size()<(size_t)ctx_size || ids.size()%ctx_size)return 2;
     int scored=ids.size()/ctx_size*(ctx_size-1);
-    auto cp=llama_context_default_params();cp.n_ctx=ctx_size;cp.n_batch=8;cp.n_ubatch=8;cp.n_threads=6;cp.n_threads_batch=6;
+    auto cp=llama_context_default_params();int batch_size=8;
+    if(const char *setting=std::getenv("K200_QUALITY_BATCH")) {
+        char *end=nullptr;long value=std::strtol(setting,&end,10);
+        if(end==setting || *end || value<1 || value>ctx_size)return 2;
+        batch_size=value;
+    }
+    cp.n_ctx=ctx_size;cp.n_batch=batch_size;cp.n_ubatch=batch_size;cp.n_threads=6;cp.n_threads_batch=6;
     cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;cp.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_DISABLED;
     auto *ctx=llama_init_from_model(model,cp);if(!ctx)return 1;auto *batch=llama_batch_ext_init(ctx);
     Reference references[2];if(argc>6)references[0].open(argv[6],nv,scored);if(argc>7)references[1].open(argv[7],nv,scored);
@@ -71,7 +77,7 @@ int main(int argc,char **argv) {
     for(size_t offset=0;offset<ids.size();offset+=ctx_size){
         if(offset)llama_memory_clear(llama_get_memory(ctx),true);
         for(int position=0;position<ctx_size-1;){
-            int nb=std::min(8,ctx_size-1-position);llama_batch_ext_clear(batch);
+            int nb=std::min(batch_size,ctx_size-1-position);llama_batch_ext_clear(batch);
             for(int j=0;j<nb;++j){int i=llama_batch_ext_add_token(batch,0,ids[offset+position+j]);llama_pos p=position+j;llama_batch_ext_set_pos(batch,i,&p);llama_batch_ext_set_output_logits(batch,i,true);}
             if(llama_process(ctx,LLAMA_PROCESS_TYPE_DECODE,batch))return 1;
             for(int j=0;j<nb;++j){
@@ -88,6 +94,6 @@ int main(int argc,char **argv) {
     }
     if(dump)std::fclose(dump);
     for(int i=0;i<2;++i)references[i].print(i);
-    std::printf("CORPUS input_tokens=%zu scored=%zu context=%d mean_nll=%.12g perplexity=%.12g\n",ids.size(),count,ctx_size,nll/count,std::exp(nll/count));
+    std::printf("CORPUS input_tokens=%zu scored=%zu context=%d batch=%d mean_nll=%.12g perplexity=%.12g\n",ids.size(),count,ctx_size,batch_size,nll/count,std::exp(nll/count));
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
 }
