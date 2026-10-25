@@ -79,7 +79,8 @@ struct buffer_context {
 };
 struct backend_context {
     int id;
-    kernel mv[2], ew, gather, kv, glu;
+    kernel mv[2], ew, gather, kv, glu, attention;
+    std::map<std::string,size_t> attention_phases,attention_shapes;
     size_t glu_calls=0, glu_elements=0;
     std::map<std::string,size_t> glu_phases;
     std::map<int,size_t> glu_rows;
@@ -316,6 +317,8 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
     ++split_matmuls;
 }
 
+#include "attention.inc"
+
 bool swiglu_enabled() {
     const char *mode=std::getenv("GGML_KUNLUN_SWIGLU");
     return mode && (!std::strcmp(mode,"1") || !std::strcmp(mode,"pp"));
@@ -504,6 +507,15 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
         }
     }
     if (!a) return false;
+    if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) {
+        const char *reason=attention_reason(t);
+        if(*reason && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
+            static std::map<std::string,bool> reported;
+            std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
+            if(!reported[reason]){reported[reason]=true;std::fprintf(stderr,"KUNLUN Attention placement: CPU op=%s reason=%s tensor=%s\n",ggml_op_name(t->op),reason,t->name);}
+        }
+        return !*reason;
+    }
     if (t->op == GGML_OP_GLU) {
         const char *reason=glu_reason(t);
         if(*reason && swiglu_enabled() && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
@@ -575,6 +587,9 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         }
         std::fprintf(stderr,"KUNLUN SwiGLU totals PD%d: calls=%zu elements=%zu\n",c->id,c->glu_calls,c->glu_elements);
         for(const auto &v:c->glu_phases)std::fprintf(stderr,"KUNLUN SwiGLU phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
+        auto as=kunlun::attention_statistics(c->attention);
+        std::fprintf(stderr,"KUNLUN Attention totals PD%d: matmul=%zu softmax=%zu cont=%zu rope=%zu hbm=%zu l3=%zu host_trig=%zu pack=%zu\n",c->id,as.matmuls,as.softmax,as.copies,as.rope,as.hbm_workspace_bytes,as.l3_workspace_bytes,as.rope_host_trig,as.pack_calls);
+        for(const auto &v:c->attention_phases)std::fprintf(stderr,"KUNLUN Attention phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
         delete c; delete b;
     };
     iface.graph_compute = [](ggml_backend_t b, ggml_cgraph * graph) {
@@ -583,7 +598,8 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
             kunlun::diagnostic_tensor(t->name,t->ne);
-            if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
+            if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) attention_compute(c,t);
+            else if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
             else if (t->op == GGML_OP_SET_ROWS) set_rows(c,t);
             else if (t->op == GGML_OP_GLU) swiglu(c,t);
             else if (t->op == GGML_OP_ADD || t->op == GGML_OP_MUL || t->op == GGML_OP_RMS_NORM || t->op == GGML_OP_UNARY || t->op == GGML_OP_SCALE) elementwise(c,t);
@@ -623,6 +639,8 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
     std::call_once(once, [] {
         std::atexit(log_native_totals);
         std::atexit(log_common_totals);
+        for(const char *name:{"GGML_KUNLUN_ATTENTION","GGML_KUNLUN_ROPE"})if(const char *value=std::getenv(name))
+            if(std::strcmp(value,"0") && std::strcmp(value,"1") && !(std::strcmp(name,"GGML_KUNLUN_ATTENTION")==0 && std::strcmp(value,"tg")==0))std::fprintf(stderr,"KUNLUN invalid %s=%s; feature disabled\n",name,value);
         const char *glu_setting=std::getenv("GGML_KUNLUN_SWIGLU");
         if(glu_setting && std::strcmp(glu_setting,"0") && std::strcmp(glu_setting,"1") && std::strcmp(glu_setting,"pp"))
             std::fprintf(stderr,"KUNLUN SwiGLU disabled: invalid GGML_KUNLUN_SWIGLU=%s (expected 0, 1 or pp)\n",glu_setting);
