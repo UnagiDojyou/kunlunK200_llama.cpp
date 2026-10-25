@@ -39,7 +39,22 @@ struct OpTrace {
 };
 static bool trace_op(ggml_tensor * node,bool ask,void * opaque) {
     auto & trace=*static_cast<OpTrace *>(opaque);
-    if(ask) { trace.start=Clock::now(); return true; }
+    if(ask) {
+        if(std::getenv("K200_TRACE_LAYOUT") && (node->op==GGML_OP_MUL_MAT || node->op==GGML_OP_SOFT_MAX || node->op==GGML_OP_ROPE || node->op==GGML_OP_CONT)) {
+            static std::map<std::string,bool> seen;
+            std::string key=std::string(node->name)+":"+std::to_string(node->ne[1]);
+            if(!seen[key] && (std::strstr(node->name,"-0") || node->op==GGML_OP_SOFT_MAX)) {
+                seen[key]=true;
+                auto log=[](const char *role,const ggml_tensor *t) {
+                    if(!t)return;
+                    std::fprintf(stderr,"K200LAYOUT role=%s name=%s op=%s type=%s ne=%lld,%lld,%lld,%lld nb=%zu,%zu,%zu,%zu buffer=%s params=",role,t->name,ggml_op_name(t->op),ggml_type_name(t->type),(long long)t->ne[0],(long long)t->ne[1],(long long)t->ne[2],(long long)t->ne[3],t->nb[0],t->nb[1],t->nb[2],t->nb[3],t->buffer?ggml_backend_buffer_name(t->buffer):"view");
+                    for(int i=0;i<8;++i)std::fprintf(stderr,"%s%d",i?",":"",t->op_params[i]);std::fprintf(stderr,"\n");
+                };
+                log("dst",node);for(const auto *v:node->src)log("src",v);
+            }
+        }
+        trace.start=Clock::now();return true;
+    }
     double ms=elapsed(trace.start);
     const char *phase=std::getenv("K200_PROFILE_PHASE");
     std::string key=std::string(phase?phase:"other")+"|"+ggml_op_name(node->op)+"|"+

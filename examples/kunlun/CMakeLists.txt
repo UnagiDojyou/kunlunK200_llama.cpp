@@ -11,3 +11,6 @@ target_link_libraries(kunlun-quality-eval PRIVATE llama ggml ggml-base)
 
 add_executable(kunlun-swiglu-test swiglu-test.cpp)
 target_link_libraries(kunlun-swiglu-test PRIVATE ggml ggml-base)
+
+add_executable(kunlun-attention-test attention-test.cpp)
+target_link_libraries(kunlun-attention-test PRIVATE llama ggml)
