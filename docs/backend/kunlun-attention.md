@@ -58,3 +58,11 @@ OMP_WAIT_POLICY=PASSIVE GGML_KUNLUN_COMMON_Q4=1 \
 ```
 
 Wrap device commands with the existing thermal guard and fail-stop runner. `none`, `layer`, `row` select existing splits. Unset Attention or use0 for the old comparison. Use1 to measure full native PP/TG. Keep Q4/SwiGLU/context/batch/threads/KV/clock conditions identical. Attention does not repack or upload Q4 weights when PP changes to TG.
+
+## Bundled Attention acceleration (library 0.6.3)
+
+The bundled library includes SDNN matrix multiplication, local-memory CL Softmax and DMA preprocessing. Resident Attention remains opt-in: `GGML_KUNLUN_ATTENTION=1` enables supported PP/TG, `tg` keeps multi-query PP on CPU, and unset/0 preserves CPU Attention. Q4 and SwiGLU settings remain independent.
+
+With library 0.6.3, `KUNLUN_ATTENTION_MATMUL=auto/sdnn/cl` selects measured dispatch, forced supported SDNN or CL reference. The SDNN interface converts half inputs to symmetric INT16 MAC operands with visible F32 accumulation/output; it is not a claim of IEEE half MAC arithmetic. Auto retains CL for the measured long-context GQA KQ GEMV case. `KUNLUN_ATTENTION_SOFTMAX=legacy` and `KUNLUN_ATTENTION_PREP=legacy` retain the corresponding comparison paths; their defaults use validated fast Softmax and shape-aware preprocessing. Unsupported SDNN shapes retain CL fallback.
+
+See the [library Attention guide](../../vendor/KunlunK200/docs/attention.md) for exact layout, rounding, workspace, lifetime and dispatch contracts. System-library builds still accept API-compatible 0.6 releases; these acceleration controls require 0.6.3. Omit timing, trace, verification and profiling flags from normal performance measurements. Model/context-dependent regressions and CPU-reference numerical differences remain possible; the explicit backend opt-in is unchanged.
