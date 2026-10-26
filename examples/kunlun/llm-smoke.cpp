@@ -97,7 +97,7 @@ static int smoke_run(int argc,char **argv) {
     double model_ms=elapsed(start);auto cp=llama_context_default_params();
     cp.n_ctx=setting("K200_CTX",256);cp.n_batch=setting("K200_BATCH",8);cp.n_ubatch=setting("K200_UBATCH",8);
     cp.n_threads=6;cp.n_threads_batch=6;cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;
-    cp.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_DISABLED;cp.no_perf=false;
+    cp.flash_attn_type=(std::getenv("K200_FLASH")&&!std::strcmp(std::getenv("K200_FLASH"),"1"))?LLAMA_FLASH_ATTN_TYPE_ENABLED:LLAMA_FLASH_ATTN_TYPE_DISABLED;cp.no_perf=false;
     OpTrace trace;
     if(std::getenv("K200_TRACE_OPS")) { cp.cb_eval=trace_op;cp.cb_eval_user_data=&trace; }
     setenv("K200_PROFILE_PHASE","context",1);

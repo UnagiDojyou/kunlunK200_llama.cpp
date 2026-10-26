@@ -69,7 +69,7 @@ int main(int argc,char **argv) {
         batch_size=value;
     }
     cp.n_ctx=ctx_size;cp.n_batch=batch_size;cp.n_ubatch=batch_size;cp.n_threads=6;cp.n_threads_batch=6;
-    cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;cp.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_DISABLED;
+    cp.offload_kqv=std::getenv("GGML_KUNLUN_CPU_KV")==nullptr;cp.flash_attn_type=(std::getenv("K200_FLASH")&&!std::strcmp(std::getenv("K200_FLASH"),"1"))?LLAMA_FLASH_ATTN_TYPE_ENABLED:LLAMA_FLASH_ATTN_TYPE_DISABLED;
     auto *ctx=llama_init_from_model(model,cp);if(!ctx)return 1;auto *batch=llama_batch_ext_init(ctx);
     Reference references[2];if(argc>6)references[0].open(argv[6],nv,scored);if(argc>7)references[1].open(argv[7],nv,scored);
     FILE *dump=nullptr;if(std::strcmp(argv[5],"-")){dump=std::fopen(argv[5],"wb");if(!dump)return 2;int header[2]={nv,scored};if(std::fwrite(header,4,2,dump)!=2)return 2;}

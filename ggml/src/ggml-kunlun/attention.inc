@@ -21,6 +21,26 @@ bool attention_layout(const ggml_tensor *t,kunlun::Tensor4Layout &p) {
     p.type=t->type==GGML_TYPE_F16?kunlun::InputType::f16:kunlun::InputType::f32;
     return !*kunlun::tensor4_reason(p);
 }
+bool flash_enabled() {
+    const char *mode=std::getenv("GGML_KUNLUN_FLASH");return attention_enabled() && mode && !std::strcmp(mode,"1");
+}
+const char * flash_parameters(const ggml_tensor *t,kunlun::Flash4Layout &p) {
+    if(!flash_enabled())return "flash disabled";
+    if(t->src[4])return "flash sinks";
+    if(!attention_layout(t->src[0],p.q)||!attention_layout(t->src[1],p.k)||!attention_layout(t->src[2],p.v)||!attention_layout(t,p.y))return "flash tensor layout/type";
+    float cap;std::memcpy(&cap,(const char*)t->op_params+8,4);if(cap!=0)return "flash soft cap";
+    p.has_mask=t->src[3]!=nullptr;if(p.has_mask&&!attention_layout(t->src[3],p.mask))return "flash mask";
+    std::memcpy(&p.scale,t->op_params,4);std::memcpy(&p.max_bias,(const char*)t->op_params+4,4);
+    return kunlun::flash_attention_reason(p);
+}
+void flash_compute(backend_context *ctx,ggml_tensor *t) {
+    kunlun::Flash4Layout p{};GGML_ASSERT(!*flash_parameters(t,p));
+    for(auto *v:{t,t->src[0],t->src[1],t->src[2],t->src[3]})if(v){auto *buffer=buffer_of(v);GGML_ASSERT(buffer&&!buffer->type->split&&buffer->type->id==ctx->id);}
+    auto *q=t->src[0],*k=t->src[1],*v=t->src[2],*mask=t->src[3];
+    bool ok=kunlun::flash_attention(ctx->attention,ctx->id,t->data,ggml_nbytes(t),q->data,ggml_nbytes(q),k->data,ggml_nbytes(k),v->data,ggml_nbytes(v),mask?mask->data:nullptr,mask?ggml_nbytes(mask):0,p);
+    if(!ok)GGML_ABORT("KUNLUN Flash pointer/layout contract failed on PD%d",ctx->id);
+    ++ctx->attention_phases["FLASH_ATTN_EXT"];
+}
 const char * attention_parameters(const ggml_tensor *t,kunlun::Matmul4Layout &p) {
     if(!attention_layout(t->src[0],p.a) || !attention_layout(t->src[1],p.b) || !attention_layout(t,p.y))return "matrix tensor layout/type";
     p.round_b_to_f16=true;return kunlun::attention_matmul_reason(p);

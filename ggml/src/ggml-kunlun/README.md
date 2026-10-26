@@ -107,3 +107,7 @@ Set `GGML_KUNLUN_NATIVE_Q4=1` before model loading to select the KunlunK200 0.3 
 See [F16 KV cache SET_ROWS](SET-ROWS.md).
 
 See [Resident FFN SwiGLU](SWIGLU.md).
+
+## Experimental FlashAttention
+
+Use `GGML_KUNLUN_ATTENTION=1 GGML_KUNLUN_FLASH=1 KUNLUN_FLASH_KV=1` with `-fa on`. The existing separate Attention remains available with `-fa off`. See `vendor/KunlunK200/docs/flash-attention.md` for shapes, precision, fallback and benchmark controls.

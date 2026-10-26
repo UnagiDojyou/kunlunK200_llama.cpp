@@ -507,6 +507,7 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
         }
     }
     if (!a) return false;
+    if(t->op==GGML_OP_FLASH_ATTN_EXT){kunlun::Flash4Layout p{};return !*flash_parameters(t,p);}
     if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) {
         const char *reason=attention_reason(t);
         if(*reason && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
@@ -587,6 +588,8 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         }
         std::fprintf(stderr,"KUNLUN SwiGLU totals PD%d: calls=%zu elements=%zu\n",c->id,c->glu_calls,c->glu_elements);
         for(const auto &v:c->glu_phases)std::fprintf(stderr,"KUNLUN SwiGLU phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
+        auto fs=kunlun::flash_statistics(c->attention);
+        if(fs.calls)std::fprintf(stderr,"KUNLUN Flash totals PD%d: calls=%zu hbm=%zu l3=%zu block=%d query_tile=%d\n",c->id,fs.calls,fs.hbm_workspace_bytes,fs.l3_workspace_bytes,fs.block,fs.query_tile);
         auto as=kunlun::attention_statistics(c->attention);
         std::fprintf(stderr,"KUNLUN Attention totals PD%d: matmul=%zu softmax=%zu cont=%zu rope=%zu hbm=%zu l3=%zu host_trig=%zu pack=%zu\n",c->id,as.matmuls,as.softmax,as.copies,as.rope,as.hbm_workspace_bytes,as.l3_workspace_bytes,as.rope_host_trig,as.pack_calls);
         for(const auto &v:c->attention_phases)std::fprintf(stderr,"KUNLUN Attention phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
@@ -598,7 +601,8 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
             kunlun::diagnostic_tensor(t->name,t->ne);
-            if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) attention_compute(c,t);
+            if(t->op==GGML_OP_FLASH_ATTN_EXT) flash_compute(c,t);
+            else if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) attention_compute(c,t);
             else if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
             else if (t->op == GGML_OP_SET_ROWS) set_rows(c,t);
             else if (t->op == GGML_OP_GLU) swiglu(c,t);
