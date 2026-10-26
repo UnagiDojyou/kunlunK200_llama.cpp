@@ -76,6 +76,7 @@ struct buffer_context {
     void * base;
     size_t size;
     std::vector<std::unique_ptr<tensor_parts>> tensors;
+    std::vector<std::unique_ptr<kunlun::KVMaxCache>> kv_maxima;
 };
 struct backend_context {
     int id;
@@ -220,7 +221,7 @@ ggml_backend_buffer_t alloc_buffer(ggml_backend_buffer_type_t bt, size_t size) {
     auto * tc = (type_context *)bt->context;
     void * base = tc->split ? mmap(nullptr, std::max<size_t>(size, 1), PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) : allocate(tc->id, size);
     if (!base || base == MAP_FAILED) return nullptr;
-    auto * ctx = new buffer_context{tc, base, size, {}};
+    auto * ctx = new buffer_context{tc, base, size, {}, {}};
     return ggml_backend_buffer_init(bt, buffer_iface, ctx, size);
 }
 
@@ -478,8 +479,9 @@ void set_rows(backend_context * ctx, ggml_tensor * dst) {
     for (int j=0;j<3;++j) { p.destination_stride[j]=dst->nb[j+1]; p.index_stride[j]=idx->nb[j]; }
     p.index_extent[0]=idx->ne[1]; p.index_extent[1]=idx->ne[2];
     p.source_bytes=ggml_type_size(src->type); p.index_bytes=ggml_type_size(idx->type); p.destination_rows=dst->ne[1];
+    std::vector<int64_t> targets;
     if (!contiguous_cache_rows(dst,src,idx,indices,p)) {
-    std::vector<int64_t> targets(src->ne[1]);
+    targets.resize(src->ne[1]);
     for (int64_t i3=0;i3<src->ne[3];++i3) for (int64_t i2=0;i2<src->ne[2];++i2) {
         for (int64_t row=0;row<src->ne[1];++row) {
             size_t off=row*idx->nb[0]+(i2%idx->ne[1])*idx->nb[1]+(i3%idx->ne[2])*idx->nb[2];
@@ -493,6 +495,8 @@ void set_rows(backend_context * ctx, ggml_tensor * dst) {
         if (std::adjacent_find(targets.begin(),targets.end()) != targets.end()) { set_rows_legacy(dst); return; }
     }
     }
+    bool tracked=!p.cache_features&&kunlun::kv_max_set_rows(ctx->kv,ctx->id,dst->data,ggml_nbytes(dst),src->data,ggml_nbytes(src),idx->data,ggml_nbytes(idx),p,targets.data(),targets.size());
+    if(tracked)return;
     bool ok=kunlun::set_rows_f16(ctx->kv,ctx->id,dst->data,ggml_nbytes(dst),src->data,ggml_nbytes(src),idx->data,ggml_nbytes(idx),p);
     if (!ok) GGML_ABORT("SET_ROWS %s device index validation failed on PD%d",dst->name,ctx->id);
 }
@@ -588,6 +592,7 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         }
         std::fprintf(stderr,"KUNLUN SwiGLU totals PD%d: calls=%zu elements=%zu\n",c->id,c->glu_calls,c->glu_elements);
         for(const auto &v:c->glu_phases)std::fprintf(stderr,"KUNLUN SwiGLU phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
+        kunlun::kv_max_log_statistics();
         auto fs=kunlun::flash_statistics(c->attention);
         if(fs.calls)std::fprintf(stderr,"KUNLUN Flash totals PD%d: calls=%zu hbm=%zu l3=%zu block=%d query_tile=%d\n",c->id,fs.calls,fs.hbm_workspace_bytes,fs.l3_workspace_bytes,fs.block,fs.query_tile);
         auto as=kunlun::attention_statistics(c->attention);
@@ -601,6 +606,8 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
             kunlun::diagnostic_tensor(t->name,t->ne);
+            if(t->op!=GGML_OP_NONE&&t->op!=GGML_OP_VIEW&&t->op!=GGML_OP_RESHAPE&&t->op!=GGML_OP_PERMUTE&&t->op!=GGML_OP_TRANSPOSE&&t->op!=GGML_OP_SET_ROWS)
+                kunlun::kv_max_invalidate(c->id,t->data,ggml_nbytes(t));
             if(t->op==GGML_OP_FLASH_ATTN_EXT) flash_compute(c,t);
             else if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) attention_compute(c,t);
             else if (t->op == GGML_OP_MUL_MAT) matmul(c,t);
@@ -667,6 +674,10 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
         buffer_iface.init_tensor = [](ggml_backend_buffer_t b, ggml_tensor * t) {
             auto * c = (buffer_context *)b->context;
             if (t->view_src) return GGML_STATUS_SUCCESS;
+            // Only backend-owned interleaved, single-stream F16 cache roots.
+            // Raw/unregistered tensors and transposed/multi-stream layouts fall back.
+            if(!c->type->split&&t->type==GGML_TYPE_F16&&ggml_is_contiguous(t)&&t->ne[2]==1&&t->ne[3]==1&&t->ne[0]>=64&&t->ne[0]%64==0&&t->ne[0]<=16384&&t->ne[1]>0&&t->ne[1]<=65536&&std::strncmp(t->name,"cache_",6)==0&&(std::strstr(t->name,"k_l")||std::strstr(t->name,"v_l")))
+                c->kv_maxima.emplace_back(new kunlun::KVMaxCache(c->type->id,t->data,ggml_nbytes(t),t->ne[0],t->ne[1],t->name));
             const char * native_setting=std::getenv("GGML_KUNLUN_NATIVE_Q4");
             if (native_setting && std::strcmp(native_setting,"1")==0 && t->type==GGML_TYPE_Q4_0 && !use_native(t) && !use_common(t))
                 std::fprintf(stderr,"KUNLUN native Q4 storage fallback: tensor=%s K=%lld N=%lld reason=outside validated native shape/layout method=%s\n",
@@ -718,6 +729,7 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
                 return;
             }
             clear_device(c->type->id,c->base,c->size,v);
+            if(v==0)kunlun::kv_max_zero(c->type->id,c->base,c->size);
             for (auto & p : c->tensors) if (p->packed || p->native || p->common) { std::fill(p->original.begin(),p->original.end(),v); repack(p.get(),0,p->rows[0]+p->rows[1]); }
         };
         buffer_iface.cpy_tensor = [](ggml_backend_buffer_t b, const ggml_tensor * src, ggml_tensor * dst) {

@@ -212,6 +212,28 @@ static int smoke_run(int argc,char **argv) {
     if(auto memory=(void(*)())dlsym(RTLD_DEFAULT,"k200_profile_memory"))memory();
     for(const auto & item:trace.values)std::fprintf(stderr,"K200OP key=%s calls=%zu ms=%.6f\n",item.first.c_str(),item.second.calls,item.second.ms);
     rusage memory{};getrusage(RUSAGE_SELF,&memory);std::fprintf(stderr,"K200RSS peak_kib=%ld\n",memory.ru_maxrss);
+
+    // Explicit lifecycle regression only; outside normal performance regions.
+    if(std::getenv("K200_CHECK_KV_MUTATIONS")) {
+        auto mem=llama_get_memory(ctx);int nv=llama_vocab_n_tokens(vocab);
+        size_t bytes=llama_state_get_size(ctx);std::vector<uint8_t> state(bytes);
+        size_t saved=llama_state_get_data(ctx,state.data(),state.size());if(!saved||saved>state.size())return 1;state.resize(saved);
+        std::string file=std::string(argv[4])+".lifecycle";FILE *f=std::fopen(file.c_str(),"wb");if(!f)return 1;
+        auto step=[&](const char *tag,int position,int token){llama_token value=token;float *row=process(&value,1,position);if(!row)return false;for(int j=0;j<nv;++j)if(!std::isfinite(row[j]))return false;if(std::fwrite(row,4,nv,f)!=(size_t)nv)return false;std::fprintf(stderr,"KV_LIFECYCLE case=%s position=%d pass=1\n",tag,position);return true;};
+        int end=llama_memory_seq_pos_max(mem,0);
+        if(!llama_memory_seq_rm(mem,0,end,-1)||!step("overwrite",end,42))return 1;
+        int begin=end-7;if(begin<0)return 1;if(!llama_memory_seq_rm(mem,0,begin,-1))return 1;
+        for(int j=0;j<8;++j)if(!step("rollback-reuse",begin+j,43+j))return 1;
+        if(std::getenv("K200_CHECK_KV_SHIFT")) {
+            if(!llama_memory_can_shift(mem)||!llama_memory_seq_rm(mem,0,0,32))return 1;
+            llama_memory_seq_add(mem,0,32,-1,-32);if(!step("context-shift",end-31,91))return 1;
+        }else std::fprintf(stderr,"KV_LIFECYCLE_SKIP case=context-shift reason=baseline-F16-inplace-RoPE-unsupported\n");
+        if(llama_state_set_data(ctx,state.data(),state.size())!=state.size()||!step("restore",end+1,92))return 1;
+        llama_memory_clear(mem,false);if(!step("clear-reuse",0,93))return 1;
+        llama_memory_clear(mem,true);if(!step("zero-reuse",0,94))return 1;
+        std::fclose(f);
+    }
+
     setenv("K200_PROFILE_PHASE","cleanup",1);
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
     return 0;
