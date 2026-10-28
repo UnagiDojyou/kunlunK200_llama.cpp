@@ -1,3 +1,4 @@
+#include "../../ggml/src/k200-diag.h"
 #include "llama.h"
 #include "ggml-backend.h"
 #include <algorithm>
@@ -40,10 +41,10 @@ struct OpTrace {
 static bool trace_op(ggml_tensor * node,bool ask,void * opaque) {
     auto & trace=*static_cast<OpTrace *>(opaque);
     if(ask) {
-        if(std::getenv("K200_TRACE_LAYOUT") && (node->op==GGML_OP_MUL_MAT || node->op==GGML_OP_SOFT_MAX || node->op==GGML_OP_ROPE || node->op==GGML_OP_CONT)) {
+        if(std::getenv("K200_TRACE_LAYOUT") && (node->op==GGML_OP_MUL_MAT || node->op==GGML_OP_SOFT_MAX || node->op==GGML_OP_ROPE || node->op==GGML_OP_CONT || node->op==GGML_OP_GET_ROWS || node->op==GGML_OP_SET_ROWS || node->op==GGML_OP_GLU)) {
             static std::map<std::string,bool> seen;
             std::string key=std::string(node->name)+":"+std::to_string(node->ne[1]);
-            if(!seen[key] && (std::strstr(node->name,"-0") || node->op==GGML_OP_SOFT_MAX)) {
+            if(!seen[key] && (std::strstr(node->name,"-0") || node->op==GGML_OP_SOFT_MAX || node->op==GGML_OP_GET_ROWS || !std::strcmp(node->name,"result_output"))) {
                 seen[key]=true;
                 auto log=[](const char *role,const ggml_tensor *t) {
                     if(!t)return;
@@ -126,11 +127,12 @@ static int smoke_run(int argc,char **argv) {
     std::fprintf(stderr,"K200INIT backend_ms=%.3f model_ms=%.3f context_ms=%.3f ctx=%u batch=%u ubatch=%u prompt_tokens=%zu positions=%d teacher_forced=%d\n",backend_ms,model_ms,context_ms,cp.n_ctx,cp.n_batch,cp.n_ubatch,tokens.size(),predict,!teacher.empty() || std::getenv("K200_TEACHER_DIR"));
     auto *batch=llama_batch_ext_init(ctx);
     auto process=[&](const llama_token *ids,int count,int pos){
+        K200_DIAG_SCOPE(process_scope,"harness","process");
         llama_batch_ext_clear(batch);
         for(int i=0;i<count;++i){int j=llama_batch_ext_add_token(batch,0,ids[i]);llama_pos p=pos+i;llama_batch_ext_set_pos(batch,j,&p);}
         llama_batch_ext_set_output_logits(batch,count-1,true);
-        if(llama_process(ctx,LLAMA_PROCESS_TYPE_DECODE,batch))return (float *)nullptr;
-        return llama_get_logits_ith(ctx,-1);
+        { K200_DIAG_SCOPE(scope,"harness","llama_process");if(llama_process(ctx,LLAMA_PROCESS_TYPE_DECODE,batch))return (float *)nullptr; }
+        K200_DIAG_SCOPE(scope,"harness","logits_get");return llama_get_logits_ith(ctx,-1);
     };
     int repeats=setting("K200_REPEATS",1),warmup=std::getenv("K200_WARMUP") && std::strcmp(std::getenv("K200_WARMUP"),"0")!=0;
     const auto all_tokens=tokens;
@@ -186,10 +188,13 @@ static int smoke_run(int argc,char **argv) {
         std::vector<llama_token>generated;int nv=llama_vocab_n_tokens(vocab);
         for(int i=0;i<predict;++i){
             llama_token best=0;
+            {
+            K200_DIAG_SCOPE(scope,"harness","greedy_finite_dump_detokenize");
             for(int j=0;j<nv;++j){if(!std::isfinite(logits[j])){std::fprintf(stderr,"nonfinite logits\n");return 1;}if(logits[j]>logits[best])best=j;}
             if(dump && std::fwrite(logits,sizeof(float),nv,dump)!=(size_t)nv)return 1;
             generated.push_back(best);
             if(trial>=0){std::vector<char>piece(4096);int size=llama_token_to_piece(vocab,best,piece.data(),piece.size(),0,true);if(size<0)return 1;std::fwrite(piece.data(),1,size,stdout);}
+            }
             if(teacher.empty() && llama_vocab_is_eog(vocab,best) && !std::getenv("K200_IGNORE_EOS"))break;
             if(i+1==predict)break;
             llama_token next=teacher.empty()?best:teacher[i];

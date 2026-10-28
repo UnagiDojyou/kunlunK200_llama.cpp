@@ -1,3 +1,4 @@
+#include "k200-diag.h"
 // Note: porting this file to C++ is a work in progress
 
 #ifdef _WIN32
@@ -417,6 +418,7 @@ void ggml_backend_tensor_set_async(ggml_backend_t backend, struct ggml_tensor * 
 }
 
 void ggml_backend_tensor_get_async(ggml_backend_t backend, const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    K200_DIAG_SCOPE(diag,"tensor.get_async",tensor->name,"",size);
     GGML_ASSERT(backend);
     GGML_ASSERT(tensor);
     GGML_ASSERT(tensor->data != NULL && "tensor not allocated");
@@ -473,6 +475,7 @@ void ggml_backend_tensor_get_2d_async(ggml_backend_t backend, const struct ggml_
 }
 
 void ggml_backend_tensor_set(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+    K200_DIAG_SCOPE(diag,"tensor.set",tensor->name,"",size);
     GGML_ASSERT(tensor);
     ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
     GGML_ASSERT(buf != NULL && "tensor buffer not set");
@@ -488,6 +491,7 @@ void ggml_backend_tensor_set(struct ggml_tensor * tensor, const void * data, siz
 }
 
 void ggml_backend_tensor_get(const struct ggml_tensor * tensor, void * data, size_t offset, size_t size) {
+    K200_DIAG_SCOPE(diag,"tensor.get",tensor->name,"",size);
     GGML_ASSERT(tensor);
     ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
     GGML_ASSERT(buf != NULL && "tensor buffer not set");
@@ -563,6 +567,7 @@ void ggml_backend_tensor_memset(struct ggml_tensor * tensor, uint8_t value, size
 }
 
 void ggml_backend_synchronize(ggml_backend_t backend) {
+    K200_DIAG_SCOPE(diag,"backend.sync",ggml_backend_name(backend));
     GGML_ASSERT(backend);
     if (backend->iface.synchronize == NULL) {
         return;
@@ -599,6 +604,7 @@ enum ggml_status ggml_backend_graph_compute(ggml_backend_t backend, struct ggml_
 }
 
 enum ggml_status ggml_backend_graph_compute_async(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+    K200_DIAG_SCOPE(diag,"backend.graph",ggml_backend_name(backend));
     GGML_ASSERT(backend);
     return backend->iface.graph_compute(backend, cgraph);
 }
@@ -626,6 +632,7 @@ ggml_backend_dev_t ggml_backend_get_device(ggml_backend_t backend) {
 // backend copy
 
 void ggml_backend_tensor_copy(const struct ggml_tensor * src, struct ggml_tensor * dst) {
+    K200_DIAG_SCOPE(diag,"tensor.copy",src->name,dst->name,ggml_nbytes(src));
     GGML_ASSERT(ggml_are_same_layout(src, dst) && "cannot copy tensors with different layouts");
 
     if (src == dst) {
@@ -649,6 +656,7 @@ void ggml_backend_tensor_copy(const struct ggml_tensor * src, struct ggml_tensor
 }
 
 void ggml_backend_tensor_copy_async(ggml_backend_t backend_src, ggml_backend_t backend_dst, const struct ggml_tensor * src, struct ggml_tensor * dst) {
+    K200_DIAG_SCOPE(diag,"tensor.copy_async",src->name,dst->name,ggml_nbytes(src));
     GGML_ASSERT(ggml_are_same_layout(src, dst) && "cannot copy tensors with different layouts");
 
     if (src == dst) {
@@ -1212,6 +1220,7 @@ static void ggml_backend_sched_set_if_supported(ggml_backend_sched_t sched, stru
 
 // assigns backends to ops and splits the graph into subgraphs that can be computed on the same backend
 void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgraph * graph) {
+    K200_DIAG_SCOPE(diag,"scheduler","split_graph");
     // reset splits
     sched->n_splits = 0;
     sched->n_graph_inputs = 0;
@@ -1753,6 +1762,7 @@ void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct ggml_cgra
 }
 
 static bool ggml_backend_sched_alloc_splits(ggml_backend_sched_t sched) {
+    K200_DIAG_SCOPE(diag,"scheduler","alloc_splits");
     bool backend_ids_changed = false;
     for (int i = 0; i < sched->graph.n_nodes; i++) {
         if (sched->node_backend_ids[i] != sched->prev_node_backend_ids[i] &&
@@ -1863,6 +1873,7 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
 }
 
 static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t sched) {
+    K200_DIAG_SCOPE(diag,"scheduler","compute_splits");
     GGML_ASSERT(sched);
     struct ggml_backend_sched_split * splits = sched->splits;
 

@@ -1,3 +1,4 @@
+#include "../k200-diag.h"
 #define _CRT_SECURE_NO_DEPRECATE // Disables "unsafe" warnings on Windows
 #define _USE_MATH_DEFINES // For M_PI on MSVC
 
@@ -1737,6 +1738,9 @@ static void ggml_compute_forward_mul_mat_id(
 
 /////////////////////////////////
 
+#ifdef K200_DIAGNOSTIC_HOOKS
+#define ggml_compute_forward ggml_compute_forward_impl
+#endif
 static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
     GGML_ASSERT(params);
 
@@ -2171,6 +2175,16 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             }
     }
 }
+#ifdef K200_DIAGNOSTIC_HOOKS
+#undef ggml_compute_forward
+static void ggml_compute_forward(struct ggml_compute_params * params, struct ggml_tensor * tensor) {
+    if (!k200_diag_event || tensor->op == GGML_OP_NONE || ggml_is_empty(tensor)) { ggml_compute_forward_impl(params,tensor);return; }
+    uint64_t start=k200_diag_clock(CLOCK_MONOTONIC),cpu=k200_diag_clock(CLOCK_THREAD_CPUTIME_ID);
+    ggml_compute_forward_impl(params,tensor);
+    k200_diag_event("cpu.node",ggml_op_name(tensor->op),tensor->name,params->ith,params->nth,start,k200_diag_clock(CLOCK_MONOTONIC),k200_diag_clock(CLOCK_THREAD_CPUTIME_ID)-cpu,0);
+}
+#endif
+
 
 // Android's libc implementation "bionic" does not support setting affinity
 #if defined(__gnu_linux__)

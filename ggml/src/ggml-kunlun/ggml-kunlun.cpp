@@ -1,3 +1,4 @@
+#include "../k200-diag.h"
 #include "ggml-kunlun.h"
 #include "ggml-backend-impl.h"
 #include "ggml-impl.h"
@@ -605,6 +606,7 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto * c = (backend_context *)b->context;
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
+            K200_DIAG_SCOPE(node_diag,"xpu.node",ggml_op_name(t->op),t->name);
             kunlun::diagnostic_tensor(t->name,t->ne);
             if(t->op!=GGML_OP_NONE&&t->op!=GGML_OP_VIEW&&t->op!=GGML_OP_RESHAPE&&t->op!=GGML_OP_PERMUTE&&t->op!=GGML_OP_TRANSPOSE&&t->op!=GGML_OP_SET_ROWS)
                 kunlun::kv_max_invalidate(c->id,t->data,ggml_nbytes(t));
