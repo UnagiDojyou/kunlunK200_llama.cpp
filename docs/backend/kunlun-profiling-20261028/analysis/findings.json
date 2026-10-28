@@ -1,0 +1,1136 @@
+{
+  "q4_stages": [
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Activation quantization",
+      "ms_token": 2.6519557161458334
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMM MAC, block-scale correction and device DMA",
+      "ms_token": 7.481798382812499
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.0012505442708333333
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.008652828125
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMM FP32 slice join",
+      "ms_token": 0.07982783854166667
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 0.013357046875
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 0.0020688619791666665
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Activation quantization",
+      "ms_token": 16.48351882795699
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 83.50206904301075
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 11.634947526881719
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.14403166666666667
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 1.3413275376344087
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Activation quantization",
+      "ms_token": 2.667775802246094
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMM MAC, block-scale correction and device DMA",
+      "ms_token": 7.485857293782552
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.0012305485026041665
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.008973116373697918
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMM FP32 slice join",
+      "ms_token": 0.08030942317708333
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 0.013313318684895834
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 0.0021509760742187503
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Activation quantization",
+      "ms_token": 16.455907774193548
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 83.52641451612904
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 11.20827482795699
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.14344505376344086
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 1.2038758924731183
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Activation quantization",
+      "ms_token": 0.9400790859375
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMM MAC, block-scale correction and device DMA",
+      "ms_token": 1.4069065104166667
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.00080671875
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.005961638020833333
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMM FP32 slice join",
+      "ms_token": 0.031551625
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 0.0042864296875
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 0.0008101536458333334
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Activation quantization",
+      "ms_token": 9.654473494623657
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 17.59714969892473
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 3.1984858387096775
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.09864659139784947
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.7983354086021506
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Activation quantization",
+      "ms_token": 0.9405407996419272
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMM MAC, block-scale correction and device DMA",
+      "ms_token": 1.4070247845052084
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.0008228191731770833
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.006055733723958334
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMM FP32 slice join",
+      "ms_token": 0.03163633902994792
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 0.0043201092122395835
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 0.0008613199869791666
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Activation quantization",
+      "ms_token": 9.488326569892473
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "GEMV MAC and device DMA",
+      "ms_token": 17.389120645161288
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "GEMV FP32 scale/sum",
+      "ms_token": 3.1849348387096774
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Completed-queue wait",
+      "ms_token": 0.09885597849462364
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "stage": "Remaining Q4 API host/observer",
+      "ms_token": 0.8009134731182795
+    }
+  ],
+  "opportunities": [
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "0.32991933854166666",
+      "process_ms_per_token": "3.4853767265625",
+      "fraction": "0.09465815733126046",
+      "zero_cost_upper_speedup": "1.1045551557102784"
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "0.9400790859375",
+      "process_ms_per_token": "3.4853767265625",
+      "fraction": "0.2697209397116351",
+      "zero_cost_upper_speedup": "1.3693395502879826"
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.05709556510416667",
+      "process_ms_per_token": "3.4853767265625",
+      "fraction": "0.016381461627672584",
+      "zero_cost_upper_speedup": "1.0166542831276648"
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "3.719920752688172",
+      "process_ms_per_token": "49.60653612903226",
+      "fraction": "0.07498852052504199",
+      "zero_cost_upper_speedup": "1.081067664768448"
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "9.654473494623657",
+      "process_ms_per_token": "49.60653612903226",
+      "fraction": "0.19462099650560705",
+      "zero_cost_upper_speedup": "1.241651440702057"
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.9556838279569893",
+      "process_ms_per_token": "49.60653612903226",
+      "fraction": "0.019265280395130726",
+      "zero_cost_upper_speedup": "1.0196437222115402"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "0.33005232698567705",
+      "process_ms_per_token": "3.9684513489583333",
+      "fraction": "0.08316904957706273",
+      "zero_cost_upper_speedup": "1.0907136146949408"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "0.9405407996419272",
+      "process_ms_per_token": "3.9684513489583333",
+      "fraction": "0.23700449292110054",
+      "zero_cost_upper_speedup": "1.3106237071152145"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.05703422867838542",
+      "process_ms_per_token": "3.9684513489583333",
+      "fraction": "0.014371910769009719",
+      "zero_cost_upper_speedup": "1.014581474418229"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "3.716582591397849",
+      "process_ms_per_token": "53.1983533655914",
+      "fraction": "0.06986273740197621",
+      "zero_cost_upper_speedup": "1.075110137192911"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "9.488326569892473",
+      "process_ms_per_token": "53.1983533655914",
+      "fraction": "0.17835752367533816",
+      "zero_cost_upper_speedup": "1.2170743709273162"
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.9465923548387097",
+      "process_ms_per_token": "53.1983533655914",
+      "fraction": "0.017793640121405788",
+      "zero_cost_upper_speedup": "1.0181159895193563"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "0.9273983046875",
+      "process_ms_per_token": "13.8200551484375",
+      "fraction": "0.06710525354107229",
+      "zero_cost_upper_speedup": "1.0719322879625914"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "2.6519557161458334",
+      "process_ms_per_token": "13.8200551484375",
+      "fraction": "0.1918918331122336",
+      "zero_cost_upper_speedup": "1.2374581039704853"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.12158907031249999",
+      "process_ms_per_token": "13.8200551484375",
+      "fraction": "0.008798016289120733",
+      "zero_cost_upper_speedup": "1.0088761084357223"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "6.051012849462366",
+      "process_ms_per_token": "146.88907446236558",
+      "fraction": "0.04119443785461862",
+      "zero_cost_upper_speedup": "1.0429643292456958"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "16.48351882795699",
+      "process_ms_per_token": "146.88907446236558",
+      "fraction": "0.11221745993219004",
+      "zero_cost_upper_speedup": "1.1264019676751231"
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "1.4528004623655912",
+      "process_ms_per_token": "146.88907446236558",
+      "fraction": "0.009890459638901278",
+      "zero_cost_upper_speedup": "1.0099892579918925"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "0.9413520841471353",
+      "process_ms_per_token": "14.71536256298828",
+      "fraction": "0.0639707027344879",
+      "zero_cost_upper_speedup": "1.0683426287204578"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "2.667775802246094",
+      "process_ms_per_token": "14.71536256298828",
+      "fraction": "0.1812918839632275",
+      "zero_cost_upper_speedup": "1.2214365295910719"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "0.123033900390625",
+      "process_ms_per_token": "14.71536256298828",
+      "fraction": "0.008360915326685654",
+      "zero_cost_upper_speedup": "1.0084314096286757"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate K/V/up repeated activation quantization (keep Q/gate)",
+      "removable_ms_per_token_optimistic": "6.045767505376344",
+      "process_ms_per_token": "167.82470452688173",
+      "fraction": "0.03602430001244512",
+      "zero_cost_upper_speedup": "1.0373705478394426"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate all activation quantization (impossible zero-cost bound)",
+      "removable_ms_per_token_optimistic": "16.455907774193548",
+      "process_ms_per_token": "167.82470452688173",
+      "fraction": "0.09805414417731141",
+      "zero_cost_upper_speedup": "1.108714002669122"
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "candidate": "Eliminate alias-protection copies and their existing completion waits",
+      "removable_ms_per_token_optimistic": "1.4472836881720432",
+      "process_ms_per_token": "167.82470452688173",
+      "fraction": "0.008623782131791097",
+      "zero_cost_upper_speedup": "1.0086987986763845"
+    }
+  ],
+  "transfers": [
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "direction": "H2D",
+      "kib_token": 17.024383544921875,
+      "ms_token": 0.007458716145833333,
+      "calls_token": 0.5859375
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "direction": "D2H",
+      "kib_token": 32.87890625,
+      "ms_token": 0.019728403645833333,
+      "calls_token": 1.5234375
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "direction": "H2D",
+      "kib_token": 80.53956653225806,
+      "ms_token": 0.5042907419354838,
+      "calls_token": 71.12903225806451
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "direction": "D2H",
+      "kib_token": 49.25,
+      "ms_token": 1.3550535698924733,
+      "calls_token": 195.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "direction": "H2D",
+      "kib_token": 18.770355224609375,
+      "ms_token": 0.0076229965820312495,
+      "calls_token": 0.56005859375
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "direction": "D2H",
+      "kib_token": 32.87890625,
+      "ms_token": 0.019635619466145834,
+      "calls_token": 1.5234375
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "direction": "H2D",
+      "kib_token": 84.53956653225806,
+      "ms_token": 0.5050890322580645,
+      "calls_token": 71.12903225806451
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "direction": "D2H",
+      "kib_token": 49.25,
+      "ms_token": 1.3554585806451611,
+      "calls_token": 195.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "direction": "H2D",
+      "kib_token": 8.926239013671875,
+      "ms_token": 0.009647825520833334,
+      "calls_token": 1.1015625
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "direction": "D2H",
+      "kib_token": 16.5794677734375,
+      "ms_token": 0.012941861979166665,
+      "calls_token": 1.0546875
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "direction": "H2D",
+      "kib_token": 60.27948588709677,
+      "ms_token": 0.9527224408602151,
+      "calls_token": 139.06451612903226
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "direction": "D2H",
+      "kib_token": 24.6875,
+      "ms_token": 0.9248929462365592,
+      "calls_token": 135.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "direction": "H2D",
+      "kib_token": 10.67449951171875,
+      "ms_token": 0.009857123860677082,
+      "calls_token": 1.09033203125
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "direction": "D2H",
+      "kib_token": 16.5794677734375,
+      "ms_token": 0.01280337109375,
+      "calls_token": 1.0546875
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "direction": "H2D",
+      "kib_token": 64.28061995967742,
+      "ms_token": 0.9526757311827957,
+      "calls_token": 139.06451612903226
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "direction": "D2H",
+      "kib_token": 24.6875,
+      "ms_token": 0.924137505376344,
+      "calls_token": 135.0
+    }
+  ],
+  "head_hidden_transfers": [
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "tensor": "result_norm",
+      "kib_token": 0.125,
+      "ms_token": 7.564062500000001e-05
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "tensor": "result_norm",
+      "kib_token": 16.0,
+      "ms_token": 0.010039483870967742
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "tensor": "result_norm",
+      "kib_token": 0.125,
+      "ms_token": 7.542057291666667e-05
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "tensor": "result_norm",
+      "kib_token": 16.0,
+      "ms_token": 0.010027376344086021
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "tensor": "result_norm",
+      "kib_token": 0.0625,
+      "ms_token": 5.794791666666667e-05
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "tensor": "result_norm",
+      "kib_token": 8.0,
+      "ms_token": 0.007338860215053763
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "tensor": "result_norm",
+      "kib_token": 0.0625,
+      "ms_token": 5.7967936197916664e-05
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "tensor": "result_norm",
+      "kib_token": 8.0,
+      "ms_token": 0.007293666666666667
+    }
+  ],
+  "setrows": [
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "node_ms": 1.1048787447916666,
+      "library_union_ms": 1.0930286510416667,
+      "index_get_union_ms": 0.008854010416666667,
+      "layout_index_validation_host_residual_ms": 0.0029960833333333332
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "node_ms": 4.699487311827957,
+      "library_union_ms": 3.495521258064516,
+      "index_get_union_ms": 0.9504768602150538,
+      "layout_index_validation_host_residual_ms": 0.2534891935483871
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "node_ms": 1.105807953125,
+      "library_union_ms": 1.0939130908203125,
+      "index_get_union_ms": 0.008867146158854167,
+      "layout_index_validation_host_residual_ms": 0.0030277161458333334
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "node_ms": 5.2391036021505375,
+      "library_union_ms": 4.240917752688172,
+      "index_get_union_ms": 0.7420637741935484,
+      "layout_index_validation_host_residual_ms": 0.2561220752688172
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "node_ms": 0.0869956953125,
+      "library_union_ms": 0.07904200520833334,
+      "index_get_union_ms": 0.005848643229166666,
+      "layout_index_validation_host_residual_ms": 0.002105046875
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "node_ms": 3.0353139139784946,
+      "library_union_ms": 2.3576694086021504,
+      "index_get_union_ms": 0.5011873548387097,
+      "layout_index_validation_host_residual_ms": 0.17645715053763442
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "node_ms": 0.086949029296875,
+      "library_union_ms": 0.0789574169921875,
+      "index_get_union_ms": 0.0058462639973958334,
+      "layout_index_validation_host_residual_ms": 0.0021453483072916666
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "node_ms": 3.046942322580645,
+      "library_union_ms": 2.3635260537634406,
+      "index_get_union_ms": 0.5049668924731182,
+      "layout_index_validation_host_residual_ms": 0.178449376344086
+    }
+  ],
+  "host": [
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "pp",
+      "process_wall_ms": 13.8200551484375,
+      "wait_union_ms": 13.572463325520834,
+      "launch_union_ms": 0.0252551328125,
+      "wait_calls": 13.421875,
+      "launch_calls": 10.359375,
+      "main_thread_cpu_ms": 13.429656794270834,
+      "other_worker_cpu_ms": 0.13896189322916666
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "phase": "tg",
+      "process_wall_ms": 146.88907446236558,
+      "wait_union_ms": 120.96359039784946,
+      "launch_union_ms": 3.3886685698924732,
+      "wait_calls": 1967.1290322580646,
+      "launch_calls": 1989.0,
+      "main_thread_cpu_ms": 145.68375624731183,
+      "other_worker_cpu_ms": 17.293180494623655
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "pp",
+      "process_wall_ms": 14.71536256298828,
+      "wait_union_ms": 14.446975735188802,
+      "launch_union_ms": 0.02821637744140625,
+      "wait_calls": 13.39599609375,
+      "launch_calls": 11.484375,
+      "main_thread_cpu_ms": 14.298770687337239,
+      "other_worker_cpu_ms": 0.1392548486328125
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "phase": "tg",
+      "process_wall_ms": 167.82470452688173,
+      "wait_union_ms": 139.54995111827958,
+      "launch_union_ms": 3.7111498279569894,
+      "wait_calls": 2127.1290322580644,
+      "launch_calls": 2151.064516129032,
+      "main_thread_cpu_ms": 166.60502213978495,
+      "other_worker_cpu_ms": 17.327782333333335
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "pp",
+      "process_wall_ms": 3.4853767265625,
+      "wait_union_ms": 3.3175289791666667,
+      "launch_union_ms": 0.0161560703125,
+      "wait_calls": 9.953125,
+      "launch_calls": 7.15625,
+      "main_thread_cpu_ms": 3.4164789401041666,
+      "other_worker_cpu_ms": 0.07158180989583333
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "phase": "tg",
+      "process_wall_ms": 49.60653612903226,
+      "wait_union_ms": 31.290913913978496,
+      "launch_union_ms": 2.3401340215053765,
+      "wait_calls": 1445.0645161290322,
+      "launch_calls": 1369.0,
+      "main_thread_cpu_ms": 49.27585590322581,
+      "other_worker_cpu_ms": 8.544702301075269
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "pp",
+      "process_wall_ms": 3.9684513489583333,
+      "wait_union_ms": 3.7820153279622395,
+      "launch_union_ms": 0.018480844889322917,
+      "wait_calls": 9.94189453125,
+      "launch_calls": 7.9296875,
+      "main_thread_cpu_ms": 3.8844135556640627,
+      "other_worker_cpu_ms": 0.07078088802083334
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "phase": "tg",
+      "process_wall_ms": 53.1983533655914,
+      "wait_union_ms": 35.63438212903226,
+      "launch_union_ms": 2.3205727741935482,
+      "wait_calls": 1445.0645161290322,
+      "launch_calls": 1369.0,
+      "main_thread_cpu_ms": 52.875360516129035,
+      "other_worker_cpu_ms": 8.528149397849463
+    }
+  ],
+  "glu_transfers": [
+    {
+      "model": "tiny",
+      "glu": 0,
+      "H2D_kib_token": 544.30810546875,
+      "D2H_kib_token": 992.6875,
+      "P2P_kib_token": 0.0
+    },
+    {
+      "model": "tiny",
+      "glu": 1,
+      "H2D_kib_token": 60.30810546875,
+      "D2H_kib_token": 24.6875,
+      "P2P_kib_token": 0.0
+    },
+    {
+      "model": "7b",
+      "glu": 0,
+      "H2D_kib_token": 1456.59716796875,
+      "D2H_kib_token": 2801.25,
+      "P2P_kib_token": 0.0
+    },
+    {
+      "model": "7b",
+      "glu": 1,
+      "H2D_kib_token": 80.59716796875,
+      "D2H_kib_token": 49.25,
+      "P2P_kib_token": 0.0
+    }
+  ],
+  "tg_kernel_counts": [
+    {
+      "model": "7b",
+      "context": "128",
+      "kernel": "runtime.launch.SDK.unmapped.pd0.stream0",
+      "calls_token": 96.0
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "kernel": "runtime.launch._Z18kunlun_flash_rangePfPKhPK21KunlunAttentionConfig.pd0.stream0",
+      "calls_token": 32.0
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "kernel": "runtime.launch._Z25kunlun_flash_kq_reuse1024PfPKhS1_PKfS3_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 32.0
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "kernel": "runtime.launch._Z27kunlun_flash_online_orderedPhPfS0_S0_PKfS2_PKhS2_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 64.0
+    },
+    {
+      "model": "7b",
+      "context": "128",
+      "kernel": "runtime.launch._Z20kunlun_flash_pv_widePfPKhPKfS3_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 32.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch.SDK.unmapped.pd0.stream0",
+      "calls_token": 34.064516129032256
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z18kunlun_flash_rangePfPKhPK21KunlunAttentionConfig.pd0.stream0",
+      "calls_token": 32.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z24kunlun_flash_kq_kv_groupPfPKhS1_PKfS3_PK17KunlunFlashConfigiii.pd0.stream0",
+      "calls_token": 32.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z27kunlun_flash_online_orderedPhPfS0_S0_PKfS2_PKhS2_PK17KunlunFlashConfigii.pd0.stream106039654975232",
+      "calls_token": 64.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z24kunlun_flash_kq_kv_groupPfPKhS1_PKfS3_PK17KunlunFlashConfigiii.pd0.stream106039655022608",
+      "calls_token": 64.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z24kunlun_flash_pv_kv_groupPfPKhPKfS3_PK17KunlunFlashConfigiii.pd0.stream106039655022608",
+      "calls_token": 96.0
+    },
+    {
+      "model": "7b",
+      "context": "2048",
+      "kernel": "runtime.launch._Z27kunlun_flash_online_orderedPhPfS0_S0_PKfS2_PKhS2_PK17KunlunFlashConfigii.pd0.stream106039655022608",
+      "calls_token": 64.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "kernel": "runtime.launch.SDK.unmapped.pd0.stream0",
+      "calls_token": 66.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "kernel": "runtime.launch._Z18kunlun_flash_rangePfPKhPK21KunlunAttentionConfig.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "kernel": "runtime.launch._Z25kunlun_flash_kq_reuse1024PfPKhS1_PKfS3_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "kernel": "runtime.launch._Z27kunlun_flash_online_orderedPhPfS0_S0_PKfS2_PKhS2_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 44.0
+    },
+    {
+      "model": "tiny",
+      "context": "128",
+      "kernel": "runtime.launch._Z20kunlun_flash_pv_widePfPKhPKfS3_PK17KunlunFlashConfigii.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch.SDK.unmapped.pd0.stream0",
+      "calls_token": 66.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch._Z18kunlun_flash_rangePfPKhPK21KunlunAttentionConfig.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch._Z22kunlun_flash_decode_kqPfPKhS1_PKfS3_PK17FlashDecodeConfigi.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch._Z31kunlun_flash_decode_online_headPhPfS0_S0_PKfS2_PKhS2_PK17FlashDecodeConfigi.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch._Z27kunlun_flash_decode_pv_headPfPKhPKfS3_PK17FlashDecodeConfigi.pd0.stream0",
+      "calls_token": 22.0
+    },
+    {
+      "model": "tiny",
+      "context": "2048",
+      "kernel": "runtime.launch._Z31kunlun_flash_decode_reduce_headPhPKfS1_S1_PK17FlashDecodeConfig.pd0.stream0",
+      "calls_token": 22.0
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+model,context,phase,candidate,removable_ms_per_token_optimistic,process_ms_per_token,fraction,zero_cost_upper_speedup
+tiny,128,pp,Eliminate K/V/up repeated activation quantization (keep Q/gate),0.32991933854166666,3.4853767265625,0.09465815733126046,1.1045551557102784
+tiny,128,pp,Eliminate all activation quantization (impossible zero-cost bound),0.9400790859375,3.4853767265625,0.2697209397116351,1.3693395502879826
+tiny,128,pp,Eliminate alias-protection copies and their existing completion waits,0.05709556510416667,3.4853767265625,0.016381461627672584,1.0166542831276648
+tiny,128,tg,Eliminate K/V/up repeated activation quantization (keep Q/gate),3.719920752688172,49.60653612903226,0.07498852052504199,1.081067664768448
+tiny,128,tg,Eliminate all activation quantization (impossible zero-cost bound),9.654473494623657,49.60653612903226,0.19462099650560705,1.241651440702057
+tiny,128,tg,Eliminate alias-protection copies and their existing completion waits,0.9556838279569893,49.60653612903226,0.019265280395130726,1.0196437222115402
+tiny,2048,pp,Eliminate K/V/up repeated activation quantization (keep Q/gate),0.33005232698567705,3.9684513489583333,0.08316904957706273,1.0907136146949408
+tiny,2048,pp,Eliminate all activation quantization (impossible zero-cost bound),0.9405407996419272,3.9684513489583333,0.23700449292110054,1.3106237071152145
+tiny,2048,pp,Eliminate alias-protection copies and their existing completion waits,0.05703422867838542,3.9684513489583333,0.014371910769009719,1.014581474418229
+tiny,2048,tg,Eliminate K/V/up repeated activation quantization (keep Q/gate),3.716582591397849,53.1983533655914,0.06986273740197621,1.075110137192911
+tiny,2048,tg,Eliminate all activation quantization (impossible zero-cost bound),9.488326569892473,53.1983533655914,0.17835752367533816,1.2170743709273162
+tiny,2048,tg,Eliminate alias-protection copies and their existing completion waits,0.9465923548387097,53.1983533655914,0.017793640121405788,1.0181159895193563
+7b,128,pp,Eliminate K/V/up repeated activation quantization (keep Q/gate),0.9273983046875,13.8200551484375,0.06710525354107229,1.0719322879625914
+7b,128,pp,Eliminate all activation quantization (impossible zero-cost bound),2.6519557161458334,13.8200551484375,0.1918918331122336,1.2374581039704853
+7b,128,pp,Eliminate alias-protection copies and their existing completion waits,0.12158907031249999,13.8200551484375,0.008798016289120733,1.0088761084357223
+7b,128,tg,Eliminate K/V/up repeated activation quantization (keep Q/gate),6.051012849462366,146.88907446236558,0.04119443785461862,1.0429643292456958
+7b,128,tg,Eliminate all activation quantization (impossible zero-cost bound),16.48351882795699,146.88907446236558,0.11221745993219004,1.1264019676751231
+7b,128,tg,Eliminate alias-protection copies and their existing completion waits,1.4528004623655912,146.88907446236558,0.009890459638901278,1.0099892579918925
+7b,2048,pp,Eliminate K/V/up repeated activation quantization (keep Q/gate),0.9413520841471353,14.71536256298828,0.0639707027344879,1.0683426287204578
+7b,2048,pp,Eliminate all activation quantization (impossible zero-cost bound),2.667775802246094,14.71536256298828,0.1812918839632275,1.2214365295910719
+7b,2048,pp,Eliminate alias-protection copies and their existing completion waits,0.123033900390625,14.71536256298828,0.008360915326685654,1.0084314096286757
+7b,2048,tg,Eliminate K/V/up repeated activation quantization (keep Q/gate),6.045767505376344,167.82470452688173,0.03602430001244512,1.0373705478394426
+7b,2048,tg,Eliminate all activation quantization (impossible zero-cost bound),16.455907774193548,167.82470452688173,0.09805414417731141,1.108714002669122
+7b,2048,tg,Eliminate alias-protection copies and their existing completion waits,1.4472836881720432,167.82470452688173,0.008623782131791097,1.0086987986763845

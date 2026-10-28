@@ -44,6 +44,8 @@ python compare-glu.py /path/to/results
 python analyze-flash.py /path/to/results
 python analyze-opportunities.py /path/to/results
 python analyze-configurations.py /path/to/results
+python summarize-findings.py /path/to/results
+python inspect-row-apis.py /path/to/results
 python report-normal.py /path/to/results
 python report-light.py /path/to/results
 python report-diagnostic.py /path/to/results
