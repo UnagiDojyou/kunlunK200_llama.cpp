@@ -17,7 +17,7 @@ def scan(root=None):
  LOGS=ROOT/'logs';DEST=ROOT/'analysis'
  if not LOGS.is_dir():raise FileNotFoundError('Pass a results directory containing logs/')
  DEST.mkdir(exist_ok=True)
- standards=[];prefix=[];quant=[];transfers=[];memory=[];activation=[];safety=[];fallback=[];paths=[];weights=[];library=[];cpu_gold=[];api=[]
+ standards=[];prefix=[];quant=[];transfers=[];memory=[];activation=[];safety=[];fallback=[];paths=[];weights=[];library=[];cpu_gold=[];api=[];graphs=[]
  for f in sorted(LOGS.glob('*.txt')):
   meta=f.with_suffix('.json')
   if not meta.exists():continue
@@ -40,6 +40,8 @@ def scan(root=None):
    v=kv_values(body);quant.append(dict(name=name,pd=int(pd),phase=v.pop('phase'),**{k:float(x) if k.endswith('_ms') else int(x) for k,x in v.items()}))
   for pd,body in re.findall(r'KUNLUN activation PD([01]): ([^\n]+)',s):
    v=kv_values(body);activation.append(dict(name=name,pd=int(pd),**{k:float(x) if k.endswith('_ms') else int(x) for k,x in v.items()}))
+  for pd,body in re.findall(r'KUNLUN activation graph PD([01]): ([^\n]+)',s):
+   graphs.append(dict(name=name,owner_pd=int(pd),**{k:int(v) for k,v in kv_values(body).items()}))
   for pd,body in re.findall(r'KUNLUN common phase PD([01]): ([^\n]+)',s):
    values=kv_values(body);paths.append(dict(name=name,pd=int(pd),phase=values.pop('phase'),**{k:int(v) for k,v in values.items()}))
   for pd,body in re.findall(r'KUNLUN common totals PD([01]): ([^\n]+)',s):
@@ -73,7 +75,7 @@ def scan(root=None):
     if category=='cpu.node' and row['worker']!='0':continue
     key=(row['phase'],category,row['name'],row['tensor'] if category=='cpu.node' else '');v=grouped[key];v[0]+=1;v[1]+=int(row['end_ns'])-int(row['start_ns']);v[2]+=int(row['cpu_ns'])
   for (phase,category,op,tensor),(calls,ns,cpu) in grouped.items():timeline.append(dict(tensor=tensor,name=f.name.replace('.events.csv',''),phase=phase,category=category,op=op,calls=calls,ms=ns/1e6,cpu_ms=cpu/1e6))
- data=dict(standard=standards,prefix=prefix_summary,quant=quant,transfers=transfers,memory=memory,activation=activation,safety=safety,fallback=fallback,timeline=timeline,paths=paths,weights=weights,library=library,cpu_gold=cpu_gold,api=api)
+ data=dict(standard=standards,prefix=prefix_summary,quant=quant,transfers=transfers,memory=memory,activation=activation,safety=safety,fallback=fallback,timeline=timeline,paths=paths,weights=weights,library=library,cpu_gold=cpu_gold,api=api,graphs=graphs)
  (DEST/'results.json').write_text(json.dumps(data,ensure_ascii=False,indent=2));print({k:len(v) for k,v in data.items()})
  # Flat CSV includes all individual samples in the JSON above.
  with (DEST/'standard.csv').open('w',newline='') as stream:
