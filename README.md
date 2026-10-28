@@ -136,3 +136,5 @@ The `llama.cpp` project is build on top of the [ggml](https://github.com/ggml-or
 - [sheredom/subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain
 
 Native resident F16 Attention is available as an explicit opt-in; see [Attention implementation, constraints and measurement notes](docs/backend/kunlun-attention.md).
+
+See [Kunlun FlashAttention 0.7.6](docs/backend/kunlun-flash-076.md) for the pinned validated optimizations, opt-in controls and benchmark conditions.

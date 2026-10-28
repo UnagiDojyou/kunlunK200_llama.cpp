@@ -1,0 +1,9 @@
+# Kunlun FlashAttention 0.7.6
+
+The pinned library includes validated KQ reuse, Flash-Decoding, exact tracked KV maxima, SDNN/CL pipeline, explicit simd8 Online Softmax and grouped K/V DMA. FlashAttention remains an explicit opt-in. Enable the existing resident Attention/Flash/KV controls before context creation: `GGML_KUNLUN_ATTENTION=1 GGML_KUNLUN_FLASH=1 KUNLUN_FLASH_KV=1`. Q4 and SwiGLU selection are independent.
+
+`KUNLUN_FLASH_KV_DMA=auto` only adopts measured interleaved D128/H32/HK32/B1/M1 TG with F16 mask, no ALiBi, Qt128 and padded S512..4352/256-step. PP, TinyLlama and unsupported shapes retain the previous transfer kernels. `legacy` is the comparison path. `coalesced`, `decode2/decode4` and raw group controls are explicit tuning modes that can regress. Pipeline, decoding and KV maximum cache controls remain auto with their own shape/lifetime guards. Online auto remains Ordered; simd8 is explicit.
+
+See the [library 0.7.6 guide](../../vendor/KunlunK200/docs/flash-kv-dma.md) for contracts, ownership, measurements and build instructions. The later DS/COA study did not demonstrate a robust additional model speedup, so its shaders are not promoted into this pin. No new default backend or quantization setting is enabled.
+
+For standard benchmark comparisons, use the current `llama-bench` and record exact flags. The published baseline used `-p 512 -n 128 -r 10 -b 512 -ub 128 -t 6 -ngl 99 -ctk f16 -ctv f16 -fa on`; select KUNLUN0/KUNLUN1 and none/layer/row split explicitly. PP512 and empty-KV TG128 are separate tests; prefix-dependent TG and stock ubatch512 results must not be relabelled TG128 or combined. The measured GGUFs have CPU embedding and a CPU Q6_K output layer, so this is mixed CPU/K200 inference. Disable diagnostics/verification/timestamp/preload hooks in normal runs. Full sample conditions and model hashes are in the library guide.
