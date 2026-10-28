@@ -17,7 +17,7 @@ def scan(root=None):
  LOGS=ROOT/'logs';DEST=ROOT/'analysis'
  if not LOGS.is_dir():raise FileNotFoundError('Pass a results directory containing logs/')
  DEST.mkdir(exist_ok=True)
- standards=[];prefix=[];quant=[];transfers=[];memory=[];activation=[];safety=[];fallback=[];paths=[];weights=[]
+ standards=[];prefix=[];quant=[];transfers=[];memory=[];activation=[];safety=[];fallback=[];paths=[];weights=[];library=[];cpu_gold=[];api=[]
  for f in sorted(LOGS.glob('*.txt')):
   meta=f.with_suffix('.json')
   if not meta.exists():continue
@@ -45,8 +45,11 @@ def scan(root=None):
   for pd,body in re.findall(r'KUNLUN common totals PD([01]): ([^\n]+)',s):
    values=kv_values(body);weights.append(dict(name=name,pd=int(pd),**{k:float(v) if k.endswith('_ms') else int(v) for k,v in values.items()}))
   for line in s.splitlines():
+   if name.startswith('lease-v2') and line.startswith('ACTIVATION_RESULT '):library.append(dict(name=name,**json.loads(line.split(' ',1)[1])))
+   if name.startswith('cpu-gold-') and line.startswith('COMMON_RESULT '):cpu_gold.append(dict(name=name,**json.loads(line.split(' ',1)[1])))
    if line.startswith('K200PROFILE\t'):
     _,phase,kind,count,ms,bytes_=line.split('\t')
+    if kind.startswith('q4.'):api.append(dict(name=name,phase=phase,kind=kind,calls=int(count),ms=float(ms),bytes=int(bytes_)))
     if kind.startswith('runtime.copy.') or kind.startswith('runtime.wait.') or kind.startswith('runtime.launch.'):
      transfers.append(dict(name=name,phase=phase,kind=kind,calls=int(count),ms=float(ms),bytes=int(bytes_)))
    if line.startswith(('K200HBM ','K200L3 ')):
@@ -70,7 +73,7 @@ def scan(root=None):
     if category=='cpu.node' and row['worker']!='0':continue
     key=(row['phase'],category,row['name'],row['tensor'] if category=='cpu.node' else '');v=grouped[key];v[0]+=1;v[1]+=int(row['end_ns'])-int(row['start_ns']);v[2]+=int(row['cpu_ns'])
   for (phase,category,op,tensor),(calls,ns,cpu) in grouped.items():timeline.append(dict(tensor=tensor,name=f.name.replace('.events.csv',''),phase=phase,category=category,op=op,calls=calls,ms=ns/1e6,cpu_ms=cpu/1e6))
- data=dict(standard=standards,prefix=prefix_summary,quant=quant,transfers=transfers,memory=memory,activation=activation,safety=safety,fallback=fallback,timeline=timeline,paths=paths,weights=weights)
+ data=dict(standard=standards,prefix=prefix_summary,quant=quant,transfers=transfers,memory=memory,activation=activation,safety=safety,fallback=fallback,timeline=timeline,paths=paths,weights=weights,library=library,cpu_gold=cpu_gold,api=api)
  (DEST/'results.json').write_text(json.dumps(data,ensure_ascii=False,indent=2));print({k:len(v) for k,v in data.items()})
  # Flat CSV includes all individual samples in the JSON above.
  with (DEST/'standard.csv').open('w',newline='') as stream:

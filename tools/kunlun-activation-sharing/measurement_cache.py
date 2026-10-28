@@ -5,10 +5,15 @@ import hashlib,json
 def fingerprint(command,environment):
  command=list(map(str,command));exe=Path(command[0]);files={exe.resolve()}
  files.update(p.resolve() for p in exe.parent.glob('*.so*') if p.is_file())
- for directory in environment.get('LD_LIBRARY_PATH','').split(':'):
+ search=environment.get('LD_LIBRARY_PATH','')
+ for directory in ([search] if Path(search).is_dir() else search.split(':')):
   if not directory:continue
   library=Path(directory)/'libkunlunk200.so'
   if library.is_file():files.add(library.resolve());break
+ preload=environment.get('LD_PRELOAD','')
+ for value in ([preload] if Path(preload).is_file() else preload.replace(':',' ').split()):
+  p=Path(value)
+  if p.is_file():files.add(p.resolve())
  for key in ['K200_INPUT_IDS','K200_TEACHER_FILE','K200_PROMPT_FILE']:
   value=environment.get(key)
   if value and Path(value).is_file():files.add(Path(value).resolve())

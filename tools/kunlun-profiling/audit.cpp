@@ -194,7 +194,16 @@ bool common_q4_prepare(CommonQ4Workspace &w,int id,const void *x,int k,int m,Inp
  using F=bool(*)(CommonQ4Workspace&,int,const void*,int,int,InputType,uint64_t,CommonQ4ActivationLease&);
  static auto fn=next<F>("_ZN6kunlun17common_q4_prepareERNS_17CommonQ4WorkspaceEiPKviiNS_9InputTypeEmRNS_23CommonQ4ActivationLeaseE");
  K200Scope scope("q4.activation.prepare.pd"+std::to_string(id)+".k"+std::to_string(k)+".m"+std::to_string(m));
- return fn(w,id,x,k,m,type,generation,lease);
+ std::lock_guard<std::recursive_mutex> lock(runtime_mutex());
+ auto before=w.activation_statistics().quantization_ns;auto begin=k200_diag_clock(CLOCK_MONOTONIC);
+ bool result=fn(w,id,x,k,m,type,generation,lease);auto elapsed=k200_diag_clock(CLOCK_MONOTONIC)-begin;
+ auto quant=w.activation_statistics().quantization_ns-before;
+ const char *profile=std::getenv("KUNLUN_Q4_ACT_PROFILE");
+ if(profile && !std::strcmp(profile,"1")) {
+  k200_profile_add(("q4.prepare.quant.pd"+std::to_string(id)).c_str(),quant,0);
+  k200_profile_add(("q4.prepare.nonquant.pd"+std::to_string(id)).c_str(),elapsed>=quant?elapsed-quant:0,0);
+ }
+ return result;
 }
 bool common_q4_matmul_shared(CommonQ4Workspace &w,int id,void *y,const CommonQ4Weight &weight,const CommonQ4ActivationLease &lease,uint64_t generation) {
  using F=bool(*)(CommonQ4Workspace&,int,void*,const CommonQ4Weight&,const CommonQ4ActivationLease&,uint64_t);

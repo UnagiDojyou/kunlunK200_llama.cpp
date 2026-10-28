@@ -13,4 +13,6 @@ class CacheTests(unittest.TestCase):
    library.write_bytes(b'library-B');b=fingerprint([exe],env)[0];self.assertNotEqual(a,b)
    env['GGML_KUNLUN_Q4_ACT_SHARE']='1';c=fingerprint([exe],env)[0];self.assertNotEqual(b,c)
    fixture.write_text('1 2 4');self.assertNotEqual(c,fingerprint([exe],env)[0])
+   observers=root/'observers';observers.mkdir();observer=observers/'audit.so';observer.write_bytes(b'observer-A');env['LD_PRELOAD']=str(observer)
+   before=fingerprint([exe],env)[0];observer.write_bytes(b'observer-B');self.assertNotEqual(before,fingerprint([exe],env)[0])
 if __name__=='__main__':unittest.main()
