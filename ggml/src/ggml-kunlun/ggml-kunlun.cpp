@@ -79,7 +79,26 @@ struct buffer_context {
     std::vector<std::unique_ptr<tensor_parts>> tensors;
     std::vector<std::unique_ptr<kunlun::KVMaxCache>> kv_maxima;
 };
+struct ActivationShare {
+    bool enabled=false,use=false;
+#ifdef K200_DIAGNOSTIC_HOOKS
+    bool profile=false;
+    std::map<std::string,kunlun::CommonQ4ActivationStatistics> phase_quant[2];
+#endif
+    const ggml_tensor * input=nullptr;
+    const void * data=nullptr;
+    ggml_backend_buffer_t buffer=nullptr;
+    ggml_type type=GGML_TYPE_F32;
+    int64_t ne[4]={};size_t nb[4]={},bytes=0;
+    uint64_t generation=0,peer_generation=0;
+    const void * peer_pointer=nullptr;size_t peer_extent=0;
+    kunlun::CommonQ4ActivationLease lease[2];
+    std::map<const ggml_tensor *,size_t> remaining;
+    size_t graphs=0,groups=0,write_invalidations=0;
+    size_t prepares[2]={},hits[2]={},fallback[2]={},peer_saved_bytes=0,peer_saved_calls=0;
+};
 struct backend_context {
+    ActivationShare activation;
     int id;
     kernel mv[2], ew, gather, kv, glu, attention;
     std::map<std::string,size_t> attention_phases,attention_shapes;
@@ -226,13 +245,16 @@ ggml_backend_buffer_t alloc_buffer(ggml_backend_buffer_type_t bt, size_t size) {
     return ggml_backend_buffer_init(bt, buffer_iface, ctx, size);
 }
 
+#include "q4-activation-share.inc"
+
 void launch_mv(backend_context * ctx, int id, void * y, const void * w, const void * x, int k, int n, int batch, int type, tensor_parts * packed = nullptr) {
     if (packed && packed->common) {
         GGML_ASSERT(packed->common_weight[id] && packed->common_weight[id]->data()==w);
         auto info=packed->common_weight[id]->info();
         GGML_ASSERT(type==2 && info.k==k && info.n==n && info.device==id);
         auto & workspace=ctx->common[id];auto before=workspace.statistics();
-        kunlun::common_q4_matmul(workspace,id,y,*packed->common_weight[id],x,batch);
+        if (!activation_matmul(ctx,id,y,*packed->common_weight[id],x,k,batch))
+            kunlun::common_q4_matmul(workspace,id,y,*packed->common_weight[id],x,batch);
         auto after=workspace.statistics();
         const char * phase=std::getenv("K200_PROFILE_PHASE");
         auto & phase_counts=common_phase[id][phase?phase:"other"];
@@ -265,6 +287,7 @@ void launch_mv(backend_context * ctx, int id, void * y, const void * w, const vo
 int kernel_type(enum ggml_type t) { return t == GGML_TYPE_Q4_0 ? 2 : t == GGML_TYPE_F16 ? 1 : 0; }
 
 void matmul(backend_context * ctx, ggml_tensor * dst) {
+    ActivationMatmulScope activation_scope(ctx,dst);
     const auto * w=dst->src[0]; const auto * x=dst->src[1];
     int k=w->ne[0], n=w->ne[1], batch=x->ne[1];
     auto * wb=buffer_of(w); auto * parts=(tensor_parts *)w->extra;
@@ -291,7 +314,15 @@ void matmul(backend_context * ctx, ggml_tensor * dst) {
         if (ctx->local_y_size < size) { release(main,ctx->local_y,ctx->local_y_size); ctx->local_y=allocate(main,size); ctx->local_y_size=size; }
         GGML_ASSERT(ctx->local_y); local_output=ctx->local_y;
     }
-    peer(other,ctx->split_x,main,x->data,xs);
+    auto & act=ctx->activation;
+    // Keep raw staging valid as well: prepared dispatch may safely decline and
+    // fall back, and an intervening F32/F16 row matmul can overwrite/resize it.
+    bool staged=act.peer_generation==act.generation && act.peer_pointer==ctx->split_x && act.peer_extent==xs;
+    if (parts->common && staged && activation_ready(ctx,other,k,batch)) {
+        ++act.peer_saved_calls;act.peer_saved_bytes+=xs;
+    } else peer(other,ctx->split_x,main,x->data,xs);
+    act.peer_generation=act.use && parts->common ? act.generation : 0;
+    act.peer_pointer=ctx->split_x;act.peer_extent=xs;
     if (local_rows) launch_mv(ctx,main,local_output,parts->ptr[main],x->data,k,local_rows,batch,kernel_type(w->type),parts);
     launch_mv(ctx,other,ctx->split_y,parts->ptr[other],ctx->split_x,k,remote_rows,batch,kernel_type(w->type),parts);
     select(other); check(kunlun::wait()); select(main); check(kunlun::wait());
@@ -572,6 +603,11 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
 
 ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
     auto * ctx = new backend_context{}; ctx->id = ((device_context *)dev->context)->id;
+    ctx->activation.enabled=activation_share_enabled();
+#ifdef K200_DIAGNOSTIC_HOOKS
+    const char * act_profile=std::getenv("KUNLUN_Q4_ACT_PROFILE");
+    ctx->activation.profile=act_profile && !std::strcmp(act_profile,"1");
+#endif
     static ggml_guid guid = {0xc3,0xe7,0x03,0x2b,0x9d,0xd1,0x4c,0xc2,0xac,0x8b,0x12,0x5b,0x78,0x32,0x2f,0x90};
     ggml_backend_i iface{};
     iface.get_name = [](ggml_backend_t b) { return ggml_backend_dev_name(b->device); };
@@ -584,6 +620,18 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto stats=kunlun::statistics();
         GGML_LOG_INFO("KUNLUN stats: pd0_mm=%zu pd1_mm=%zu split_mm=%zu p2p_copies=%zu p2p_bytes=%zu\n",stats.matmuls[0],stats.matmuls[1],split_matmuls.load(),stats.peer_copies,stats.peer_bytes);
         for (int id=0;id<2;++id) {
+            auto qa=c->common[id].activation_statistics();
+            if(c->activation.enabled || std::getenv("KUNLUN_Q4_ACT_PROFILE"))std::fprintf(stderr,
+                "KUNLUN activation PD%d: prepares=%zu reuse=%zu fallback=%zu quant_chunks=%zu quant_launches=%zu prepared_matmuls=%zu prepared_chunks=%zu hbm=%zu quant_ms=%.6f prepare_ms=%.6f\n",
+                id,c->activation.prepares[id],c->activation.hits[id],c->activation.fallback[id],qa.quantized_chunks,qa.quant_kernel_launches,
+                qa.prepared_matmuls,qa.prepared_chunks,qa.hbm_activation_bytes,qa.quantization_ns/1e6,qa.preparation_ns/1e6);
+#ifdef K200_DIAGNOSTIC_HOOKS
+            for(const auto & entry:c->activation.phase_quant[id]) {
+                const auto & q=entry.second;
+                std::fprintf(stderr,"KUNLUN activation phase PD%d: phase=%s quant_chunks=%zu quant_launches=%zu prepares=%zu prepared_matmuls=%zu quant_ms=%.6f prepare_ms=%.6f hbm=%zu\n",
+                    id,entry.first.c_str(),q.quantized_chunks,q.quant_kernel_launches,q.prepare_calls,q.prepared_matmuls,q.quantization_ns/1e6,q.preparation_ns/1e6,q.hbm_activation_bytes);
+            }
+#endif
             auto common=c->common[id].statistics();
             std::fprintf(stderr,"KUNLUN common workspace PD%d: calls=%zu chunks=%zu hbm=%zu l3=%zu slice=%zu tracked_hbm=%zu\n",id,common.calls,common.chunks,common.hbm_workspace_bytes,common.l3_workspace_bytes,common.slice_bytes,kunlun::allocated_bytes(id));
             auto s=c->native[id].statistics();
@@ -599,13 +647,17 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto as=kunlun::attention_statistics(c->attention);
         std::fprintf(stderr,"KUNLUN Attention totals PD%d: matmul=%zu softmax=%zu cont=%zu rope=%zu hbm=%zu l3=%zu host_trig=%zu pack=%zu\n",c->id,as.matmuls,as.softmax,as.copies,as.rope,as.hbm_workspace_bytes,as.l3_workspace_bytes,as.rope_host_trig,as.pack_calls);
         for(const auto &v:c->attention_phases)std::fprintf(stderr,"KUNLUN Attention phase PD%d %s calls=%zu\n",c->id,v.first.c_str(),v.second);
+        if(c->activation.enabled)std::fprintf(stderr,"KUNLUN activation graph PD%d: graphs=%zu groups=%zu writes=%zu p2p_saved_calls=%zu p2p_saved_bytes=%zu\n",
+            c->id,c->activation.graphs,c->activation.groups,c->activation.write_invalidations,c->activation.peer_saved_calls,c->activation.peer_saved_bytes);
         delete c; delete b;
     };
     iface.graph_compute = [](ggml_backend_t b, ggml_cgraph * graph) {
         std::lock_guard<std::recursive_mutex> lock(runtime_mutex);
         auto * c = (backend_context *)b->context;
+        ActivationGraphScope activation_scope(c,graph);
         for (int i = 0; i < ggml_graph_n_nodes(graph); ++i) {
             auto * t = ggml_graph_node(graph,i);
+            if(c->activation.enabled)activation_write(c,t);
             K200_DIAG_SCOPE(node_diag,"xpu.node",ggml_op_name(t->op),t->name);
             kunlun::diagnostic_tensor(t->name,t->ne);
             if(t->op!=GGML_OP_NONE&&t->op!=GGML_OP_VIEW&&t->op!=GGML_OP_RESHAPE&&t->op!=GGML_OP_PERMUTE&&t->op!=GGML_OP_TRANSPOSE&&t->op!=GGML_OP_SET_ROWS)
@@ -660,6 +712,11 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
         const char * common_setting=std::getenv("GGML_KUNLUN_COMMON_Q4");
         if (common_setting && std::strcmp(common_setting,"0") && std::strcmp(common_setting,"1"))
             std::fprintf(stderr,"KUNLUN common Q4 disabled: invalid GGML_KUNLUN_COMMON_Q4=%s (expected 0 or 1)\n",common_setting);
+        const char * share_setting=std::getenv("GGML_KUNLUN_Q4_ACT_SHARE");
+        if(share_setting && std::strcmp(share_setting,"0") && std::strcmp(share_setting,"1"))
+            std::fprintf(stderr,"KUNLUN activation sharing disabled: invalid GGML_KUNLUN_Q4_ACT_SHARE=%s (expected 0 or 1)\n",share_setting);
+        if(share_setting && !std::strcmp(share_setting,"1"))std::fprintf(stderr,
+            "KUNLUN activation sharing: %s; graph-local tensor generations, per-PD leases\n",common_enabled()?"opt-in enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
         if (common_enabled()) std::fprintf(stderr,"KUNLUN common Q4 opt-in: common ABI v1 > legacy native > requant I8; M>1 Row A8, M=1 two-component A8\n");
         type_iface.get_name = [](ggml_backend_buffer_type_t b) { return ((type_context *)b->context)->name.c_str(); };
         type_iface.alloc_buffer = alloc_buffer;

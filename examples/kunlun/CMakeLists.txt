@@ -20,3 +20,6 @@ target_link_libraries(kunlun-flash-decoding-bench PRIVATE llama ggml ggml-base $
 
 add_executable(kunlun-kv-max-bench kv-max-bench.cpp)
 target_link_libraries(kunlun-kv-max-bench PRIVATE llama ggml ggml-base ${CMAKE_DL_LIBS})
+
+add_executable(kunlun-activation-share-test activation-share-test.cpp)
+target_link_libraries(kunlun-activation-share-test PRIVATE ggml ggml-base)

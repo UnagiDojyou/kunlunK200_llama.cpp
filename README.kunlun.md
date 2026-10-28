@@ -7,3 +7,7 @@ This fork adds the experimental K200 GGML backend. The independent userspace dev
 Initialize with `git submodule update --init --recursive`, set external `XRE`, `XDNN` and `XTDK_DIR`, then configure `-DGGML_KUNLUN=ON`. CMake builds the submodule automatically and links the backend to `KunlunK200::kunlunk200`. See [the backend guide](ggml/src/ggml-kunlun/README.md) for build commands, precision profiles, XPU KV cache, single-PD and layer/row split execution, and hardware tests.
 
 The submodule URL points to `UnagiDojyou/kunlunK200_lib`. Publish its referenced library commit before the parent llama.cpp commit. SDKs, models, build products and test logs belong outside both source trees.
+
+## Q4 Activation sharing (opt-in, library 0.7.7)
+
+Set GGML_KUNLUN_COMMON_Q4=1 and GGML_KUNLUN_Q4_ACT_SHARE=1 before loading the model to share graph-local, per-PD activation snapshots across QKV and FFN gate/up. The default remains disabled. See [conditions, fallback, memory and diagnostics](docs/backend/kunlun-q4-activation-sharing.md). Attention remains the validated 0.7.6 implementation.
