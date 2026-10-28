@@ -186,3 +186,21 @@ void copy_rows(Kernel &k,int id,void *dst,const void *src,int width,int rows,int
  fn(k,id,dst,src,width,rows,stride,column);
 }
 }
+
+
+// Shared activation API (0.7.7). No extra synchronization is introduced.
+namespace kunlun {
+bool common_q4_prepare(CommonQ4Workspace &w,int id,const void *x,int k,int m,InputType type,uint64_t generation,CommonQ4ActivationLease &lease) {
+ using F=bool(*)(CommonQ4Workspace&,int,const void*,int,int,InputType,uint64_t,CommonQ4ActivationLease&);
+ static auto fn=next<F>("_ZN6kunlun17common_q4_prepareERNS_17CommonQ4WorkspaceEiPKviiNS_9InputTypeEmRNS_23CommonQ4ActivationLeaseE");
+ K200Scope scope("q4.activation.prepare.pd"+std::to_string(id)+".k"+std::to_string(k)+".m"+std::to_string(m));
+ return fn(w,id,x,k,m,type,generation,lease);
+}
+bool common_q4_matmul_shared(CommonQ4Workspace &w,int id,void *y,const CommonQ4Weight &weight,const CommonQ4ActivationLease &lease,uint64_t generation) {
+ using F=bool(*)(CommonQ4Workspace&,int,void*,const CommonQ4Weight&,const CommonQ4ActivationLease&,uint64_t);
+ static auto fn=next<F>("_ZN6kunlun23common_q4_matmul_sharedERNS_17CommonQ4WorkspaceEiPvRKNS_14CommonQ4WeightERKNS_23CommonQ4ActivationLeaseEm");
+ auto info=weight.info();int m=0;size_t count=lease.chunks();for(size_t i=0;i<count;++i)m+=lease.chunk(i).rows;
+ K200Scope scope("q4.shared."+std::string(m==1?"gemv":"gemm")+".pd"+std::to_string(id)+".k"+std::to_string(info.k)+".n"+std::to_string(info.n)+".m"+std::to_string(m));
+ return fn(w,id,y,weight,lease,generation);
+}
+}

@@ -72,3 +72,9 @@ The dated Japanese report and compact derived tables are in
 `docs/backend/kunlun-profiling-20261028/`. Raw traces/logits, detailed derived
 CSVs, model/SDK/binary files and machine-specific safety controllers live in the
 separate result artifacts, not Git. See the report's reproduction instructions.
+
+## Shared Activation API (0.7.7)
+
+Build audit.cpp against KunlunK200 0.7.7 headers with -DK200_DIAGNOSTIC_HOOKS. It additionally observes q4.activation.prepare.* and q4.shared.gemv/gemm.*. The existing q4.common.* tag covers the ordinary API, including its quantization; prepared MAC time and its separate prepare time must be combined when comparing API totals. SDK launch/copy/wait spans are nested and must not be added to those totals. No GPU synchronization is added by these wrappers.
+
+Use KUNLUN_Q4_ACT_PROFILE=1 only in separate diagnostic runs for per-phase quantization counts and inclusive elapsed time. The graph-local xpu.activation events observe planning, selection, invalidation and release; select/release are already inside xpu.node MUL_MAT spans. Keep LD_PRELOAD, diagnostic hooks, serial-kernel timing and K200_TRACE_OPS out of normal throughput runs.
