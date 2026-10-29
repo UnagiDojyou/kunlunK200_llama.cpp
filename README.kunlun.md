@@ -11,3 +11,7 @@ The submodule URL points to `UnagiDojyou/kunlunK200_lib`. Publish its referenced
 ## Q4 Activation sharing (opt-in, library 0.7.7)
 
 Set GGML_KUNLUN_COMMON_Q4=1 and GGML_KUNLUN_Q4_ACT_SHARE=1 before loading the model to share graph-local, per-PD activation snapshots across QKV and FFN gate/up. The default remains disabled. See [conditions, fallback, memory and diagnostics](docs/backend/kunlun-q4-activation-sharing.md). Attention remains the validated 0.7.6 implementation.
+
+## Q4 MAC/DMA stream GEMV (0.7.8)
+
+KUNLUN_Q4_MAC_DMA=1 opts into the library stream GEMV for validated common-Q4 shapes. The default is disabled. Activation sharing is independently controlled by GGML_KUNLUN_Q4_ACT_SHARE. See [configuration and diagnostic counters](docs/backend/kunlun-q4-mac-dma.md). Existing GEMM, Attention, SwiGLU, SET_ROWS and fallback paths remain unchanged.

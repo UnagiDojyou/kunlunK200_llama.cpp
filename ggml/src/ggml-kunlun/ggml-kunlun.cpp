@@ -27,6 +27,9 @@ std::atomic<size_t> common_paths[2][8], common_uploads[2], common_upload_bytes[2
 std::atomic<size_t> common_pack_ns[2], common_h2d_ns[2];
 std::map<int,size_t> common_m[2];
 std::map<std::string,std::array<size_t,8>> common_phase[2];
+#ifdef K200_DIAGNOSTIC_HOOKS
+std::map<std::string,std::array<size_t,3>> common_mac_phase[2];
+#endif
 bool common_enabled() {
     const char * s=std::getenv("GGML_KUNLUN_COMMON_Q4");
     return s && std::strcmp(s,"1")==0;
@@ -43,6 +46,11 @@ void log_common_totals() {
             for(int i=0;i<8;++i)std::fprintf(stderr," p%d=%zu",i,pair.second[i]);
             std::fprintf(stderr,"\n");
         }
+#ifdef K200_DIAGNOSTIC_HOOKS
+        for(const auto & pair:common_mac_phase[id])std::fprintf(stderr,
+            "KUNLUN common MAC phase PD%d: phase=%s baseline=%zu stream=%zu shape_fallback=%zu\n",
+            id,pair.first.c_str(),pair.second[0],pair.second[1],pair.second[2]);
+#endif
         for (auto pair : common_m[id]) std::fprintf(stderr,"KUNLUN common M PD%d: m=%d calls=%zu\n",id,pair.first,pair.second);
     }
 }
@@ -253,12 +261,21 @@ void launch_mv(backend_context * ctx, int id, void * y, const void * w, const vo
         auto info=packed->common_weight[id]->info();
         GGML_ASSERT(type==2 && info.k==k && info.n==n && info.device==id);
         auto & workspace=ctx->common[id];auto before=workspace.statistics();
+#ifdef K200_DIAGNOSTIC_HOOKS
+        auto mac_before=workspace.mac_statistics();
+#endif
         if (!activation_matmul(ctx,id,y,*packed->common_weight[id],x,k,batch))
             kunlun::common_q4_matmul(workspace,id,y,*packed->common_weight[id],x,batch);
         auto after=workspace.statistics();
         const char * phase=std::getenv("K200_PROFILE_PHASE");
         auto & phase_counts=common_phase[id][phase?phase:"other"];
         for(int i=0;i<8;++i) { size_t count=after.paths[i]-before.paths[i];common_paths[id][i]+=count;phase_counts[i]+=count; }
+#ifdef K200_DIAGNOSTIC_HOOKS
+        auto mac_after=workspace.mac_statistics();auto & mac_phase=common_mac_phase[id][phase?phase:"other"];
+        mac_phase[0]+=mac_after.baseline_sd_calls-mac_before.baseline_sd_calls;
+        mac_phase[1]+=mac_after.stream_sd_calls-mac_before.stream_sd_calls;
+        mac_phase[2]+=mac_after.shape_fallbacks-mac_before.shape_fallbacks;
+#endif
         if (!common_m[id][batch]++) std::fprintf(stderr,"KUNLUN common dispatch PD%d: ABI=1 K=%d N=%d M=%d weight=%p GEMV=%zu GEMM=%zu exact_cl=%zu\n",
             id,k,n,batch,w,after.paths[0]-before.paths[0],after.chunks-before.chunks-(after.paths[0]-before.paths[0])-(after.paths[7]-before.paths[7]),after.paths[7]-before.paths[7]);
         return;
@@ -620,6 +637,10 @@ ggml_backend_t init_backend(ggml_backend_dev_t dev, const char *) {
         auto stats=kunlun::statistics();
         GGML_LOG_INFO("KUNLUN stats: pd0_mm=%zu pd1_mm=%zu split_mm=%zu p2p_copies=%zu p2p_bytes=%zu\n",stats.matmuls[0],stats.matmuls[1],split_matmuls.load(),stats.peer_copies,stats.peer_bytes);
         for (int id=0;id<2;++id) {
+            auto mac=c->common[id].mac_statistics();
+            if(mac.baseline_sd_calls || mac.stream_sd_calls)std::fprintf(stderr,
+                "KUNLUN common MAC PD%d: owner=%d baseline=%zu stream=%zu shape_fallback=%zu resident_l1d=%zu\n",
+                id,c->id,mac.baseline_sd_calls,mac.stream_sd_calls,mac.shape_fallbacks,mac.resident_l1d_bytes);
             auto qa=c->common[id].activation_statistics();
             if(c->activation.enabled || std::getenv("KUNLUN_Q4_ACT_PROFILE"))std::fprintf(stderr,
                 "KUNLUN activation PD%d: prepares=%zu reuse=%zu fallback=%zu quant_chunks=%zu quant_launches=%zu prepared_matmuls=%zu prepared_chunks=%zu hbm=%zu quant_ms=%.6f prepare_ms=%.6f\n",
@@ -712,6 +733,11 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
         const char * common_setting=std::getenv("GGML_KUNLUN_COMMON_Q4");
         if (common_setting && std::strcmp(common_setting,"0") && std::strcmp(common_setting,"1"))
             std::fprintf(stderr,"KUNLUN common Q4 disabled: invalid GGML_KUNLUN_COMMON_Q4=%s (expected 0 or 1)\n",common_setting);
+        const char * mac_setting=std::getenv("KUNLUN_Q4_MAC_DMA");
+        if(mac_setting && std::strcmp(mac_setting,"0") && std::strcmp(mac_setting,"1"))
+            std::fprintf(stderr,"KUNLUN Q4 MAC/DMA disabled: invalid KUNLUN_Q4_MAC_DMA=%s (expected 0 or 1)\n",mac_setting);
+        if(mac_setting && !std::strcmp(mac_setting,"1"))std::fprintf(stderr,
+            "KUNLUN Q4 MAC/DMA: %s; library shape dispatch, unchanged GEMM\n",common_enabled()?"opt-in enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
         const char * share_setting=std::getenv("GGML_KUNLUN_Q4_ACT_SHARE");
         if(share_setting && std::strcmp(share_setting,"0") && std::strcmp(share_setting,"1"))
             std::fprintf(stderr,"KUNLUN activation sharing disabled: invalid GGML_KUNLUN_Q4_ACT_SHARE=%s (expected 0 or 1)\n",share_setting);
