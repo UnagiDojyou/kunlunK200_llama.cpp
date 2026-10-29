@@ -4,13 +4,15 @@ from analysis_helpers import summary,parse_standard,bench_rows,values
 
 def analyze(root):
  O=Path(root);A=O/'analysis';A.mkdir(exist_ok=True)
- standard=[];prefix=[];transfers=[];api=[];kernelwaits=[];quant=[];memory=[];paths=[];macpaths=[];workspace=[];weights=[];safety=[];frozen=[];timeline=[];fallback=[];activation=[]
+ standard=[];confirmation=[];prefix=[];transfers=[];api=[];kernelwaits=[];quant=[];memory=[];paths=[];macpaths=[];workspace=[];weights=[];safety=[];frozen=[];timeline=[];fallback=[];activation=[]
  for f in sorted((O/'logs').glob('*.txt')):
   name=f.stem;meta=f.with_suffix('.json')
   if not meta.exists():continue
   meta=json.loads(meta.read_text())
   if meta['returncode']!=0:raise RuntimeError('failed run: '+name)
   s=f.read_text(errors='replace');standard.extend(parse_standard(name,s))
+  if name.startswith('confirm-std-'):
+   for row in parse_standard(name.removeprefix('confirm-'),s):row['name']=name;confirmation.append(row)
   match=re.fullmatch(r'prefix-(tiny|7b)-(pd0|pd1|layer|row)-u(\d+)-m([01])-i(\d+)',name)
   for trial,pp_ms,length,tg_ms,steps,cold in re.findall(r'K200PERF trial=(\d+) pp_ms=([\d.]+) pp_tokens=(\d+) tg_ms=([\d.]+) tg_steps=(\d+) first_process_ms=([\d.]+)',s):
    row=dict(name=name,trial=int(trial),pp_tokens=int(length),pp_ms=float(pp_ms),tg_ms=float(tg_ms),tg_steps=int(steps),cold_ms=float(cold),pp_ts=int(length)*1000/float(pp_ms),tg_ts=int(steps)*1000/float(tg_ms) if int(steps) else 0)
@@ -74,9 +76,9 @@ def analyze(root):
     row[metric]=summary(samples)
    result.append(row)
   return result
- data=dict(standard=standard,standard_summary=aggregate(standard,['model','split','ubatch','share','mac','phase'],['ms','ts']),prefix=prefix,prefix_summary=aggregate(prefix,['model','split','ubatch','mac','pp_tokens'],['pp_ms','tg_ms','pp_ts','tg_ts']),frozen=frozen,frozen_summary=aggregate(frozen,['model','split','stable','phase'],['ms','ts']),transfers=transfers,api=api,kernelwaits=kernelwaits,quant=quant,paths=paths,macpaths=macpaths,workspace=workspace,weights=weights,memory=memory,safety=safety,timeline=timeline,fallback=fallback,activation=activation)
+ data=dict(confirmation=confirmation,confirmation_summary=aggregate(confirmation,['model','split','ubatch','share','mac','phase'],['ms','ts']),standard=standard,standard_summary=aggregate(standard,['model','split','ubatch','share','mac','phase'],['ms','ts']),prefix=prefix,prefix_summary=aggregate(prefix,['model','split','ubatch','mac','pp_tokens'],['pp_ms','tg_ms','pp_ts','tg_ts']),frozen=frozen,frozen_summary=aggregate(frozen,['model','split','stable','phase'],['ms','ts']),transfers=transfers,api=api,kernelwaits=kernelwaits,quant=quant,paths=paths,macpaths=macpaths,workspace=workspace,weights=weights,memory=memory,safety=safety,timeline=timeline,fallback=fallback,activation=activation)
  (A/'llm-results.json').write_text(json.dumps(data,ensure_ascii=False,indent=2))
- for label,rows in [('standard',data['standard_summary']),('prefix',data['prefix_summary']),('frozen',data['frozen_summary'])]:
+ for label,rows in [('confirmation',data['confirmation_summary']),('standard',data['standard_summary']),('prefix',data['prefix_summary']),('frozen',data['frozen_summary'])]:
   flat=[]
   for row in rows:
    x={}
