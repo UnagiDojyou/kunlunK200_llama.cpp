@@ -50,6 +50,12 @@ Single PD0、PP512/TG128、batch512、ubatch128/512、threads6、KV F16。COMMON
 
 n2の小差を改善とは判定しない。ubatch128は出力bitwise一致で、PP/TGに明確な構造的回帰は見られない。ubatch512が常に128より速いという結果ではなく、7Bは同程度、Tinyはなお128が速い。batch既定値は変更しない。平均・全標本はsummary.jsonへ保存した。
 
+### Tiny TGだけの追加確認
+
+混合PP/TG系列でubatch128のTiny TGが-1.23%だったため、この条件のみPP0/TG128、batch512/ubatch128、各方式4標本のABBA（各process r2）で再確認した。旧平均25.890 / 中央値26.141 / SD0.689、新平均25.882 / 中央値26.029 / SD0.583 token/s。平均差-0.03%、中央値差-0.43%。差はこの系列のばらつきより小さく、一定のTG低下は再現しなかった。元の-1.23%の結果も上表に残す。サブ%の無回帰を精密に証明したという主張はしない。
+
+commit確定後にhostを再buildし、7B PP512から4位置生成の最終logitsが実測時とbitwise一致することも確認した。
+
 ## 数値精度・KV・Lease
 
 query513のtail、prefix付きS768、GQA Q32/KV4、通常Q32/KV32、batch broadcast、F16/F32 mask、padding、ALiBi、全mask行を確認。手動で旧APIを128queryずつ呼んだ結果と全出力bitwise一致。sampleした独立F64参照の最大NMSEは約1.63e-8。RoPEはF32/F16、標準/NEOX、strided row、in-placeを旧小query呼出しとbitwise比較。CONTはCPUのview gather期待値とbyte一致。guardと入力不変も確認した。
@@ -75,7 +81,7 @@ EmbeddingのGET_ROWS（Q4_0）、入力のDUP/F32 SET_ROWS、無効化してい�
 
 ## 安全性・範囲
 
-成功guard実行29件、最高59.0℃。最初の単体で「初回seedをhitと要求」したテスト誤りによりhost assertion停止が1回あった。初回seed/次回hitへ修正し、両PDとerrtask不変を確認、ラッチをreviewed履歴として保持して既知正常小試験から再開した。device fault・resetなし。診断observerのcompile用define/includeも調整した。
+成功guard実行34件、最高59.0℃。最初の単体で「初回seedをhitと要求」したテスト誤りによりhost assertion停止が1回あった。初回seed/次回hitへ修正し、両PDとerrtask不変を確認、ラッチをreviewed履歴として保持して既知正常小試験から再開した。device fault・resetなし。診断observerのcompile用define/includeも調整した。
 
 80℃guard、abort latch、利用者確認を維持。driver/firmware/clock/OS変更なし。旧0.7.10 source/buildを保持。全context/全Split/perplexityは追加していない。新mask/sinks/soft cap等の未対応条件は元のCPU経路へ戻る。量子化方式・演算kernel・weight再pack・二重常駐の追加はない。
 
