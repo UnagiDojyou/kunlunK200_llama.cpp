@@ -27,3 +27,7 @@ llama-bench -m /path/model-q4_0.gguf -ngl 99 -dev KUNLUN0 -sm none \
 ~~~
 
 Run hardware tests through the existing thermal guard and persistent abort latch. Never continue after a device error without state checks and incident preservation. No driver, firmware, clock or OS changes are needed.
+
+Measured accuracy, end-to-end throughput, memory and reproducible commands are in [the Japanese evaluation report](reports/q4-mac-dma-20261029/REPORT.ja.md).
+
+Default-off rebuild throughput differed from frozen 0.7.7 in some measured configurations. Keep the stable build and review the separate control tables before replacing it.
