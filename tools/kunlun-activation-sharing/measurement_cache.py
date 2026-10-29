@@ -9,7 +9,11 @@ def fingerprint(command,environment):
  for directory in ([search] if Path(search).is_dir() else search.split(':')):
   if not directory:continue
   library=Path(directory)/'libkunlunk200.so'
-  if library.is_file():files.add(library.resolve());break
+  if library.is_file():
+   files.add(library.resolve())
+   kernel_dir=Path(environment.get('KUNLUN_KERNEL_DIR') or library.resolve().parent/'kunlunk200/kernels')
+   if kernel_dir.is_dir():files.update(p.resolve() for p in kernel_dir.iterdir() if p.is_file() and p.suffix in ['.bin','.entry'])
+   break
  preload=environment.get('LD_PRELOAD','')
  for value in ([preload] if Path(preload).is_file() else preload.replace(':',' ').split()):
   p=Path(value)
