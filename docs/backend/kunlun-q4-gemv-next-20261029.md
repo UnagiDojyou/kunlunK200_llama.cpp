@@ -75,7 +75,7 @@ export GGML_KUNLUN_SWIGLU=0
 cd /home/unagidojyou/kunlun-k200/results/gemv-next-20261029
 python3 - <<'PY'
 import json,runner
-m=json.load(open("logs/final-llm-7b-a1-i1.json"))
+m=json.load(open("logs/clean-llm-7b-a1-i0.json"))
 runner.run("repro-7b",m["command"],m["environment"],600)
 PY
 ~~~
