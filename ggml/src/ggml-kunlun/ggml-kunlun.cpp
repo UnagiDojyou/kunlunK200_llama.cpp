@@ -560,7 +560,14 @@ bool supports_op(ggml_backend_dev_t, const ggml_tensor * t) {
         }
     }
     if (!a) return false;
-    if(t->op==GGML_OP_FLASH_ATTN_EXT){kunlun::Flash4Layout p{};return !*flash_parameters(t,p);}
+    if(t->op==GGML_OP_FLASH_ATTN_EXT){
+        kunlun::Flash4Layout p{};const char *reason=flash_parameters(t,p);
+        if(*reason && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
+            std::lock_guard<std::recursive_mutex> lock(runtime_mutex);static std::map<std::string,bool> reported;
+            if(!reported[reason]){reported[reason]=true;std::fprintf(stderr,"KUNLUN Flash placement: CPU reason=%s tensor=%s\n",reason,t->name);}
+        }
+        return !*reason;
+    }
     if(attention_enabled() && (attention_matrix_candidate(t) || t->op==GGML_OP_SOFT_MAX || t->op==GGML_OP_CONT || t->op==GGML_OP_ROPE)) {
         const char *reason=attention_reason(t);
         if(*reason && std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {

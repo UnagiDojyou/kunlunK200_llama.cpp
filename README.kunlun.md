@@ -17,3 +17,5 @@ Set GGML_KUNLUN_COMMON_Q4=1 and GGML_KUNLUN_Q4_ACT_SHARE=1 before loading the mo
 KUNLUN_Q4_MAC_DMA=1 opts into the library stream GEMV for validated common-Q4 shapes. The default is disabled. Activation sharing is independently controlled by GGML_KUNLUN_Q4_ACT_SHARE. See [configuration and diagnostic counters](docs/backend/kunlun-q4-mac-dma.md). Existing GEMM, Attention, SwiGLU, SET_ROWS and fallback paths remain unchanged.
 
 PP Q4 GEMM opt-in 0.7.10: [評価レポート](docs/backend/kunlun-q4-gemm-next-20261029.md).
+
+Large PP offload 0.7.11: [評価と実行設定](docs/backend/kunlun-large-pp-20261030.md).

@@ -1,3 +1,6 @@
+bool large_pp_enabled() {
+    const char *mode=std::getenv("KUNLUN_LARGE_PP");return mode && !std::strcmp(mode,"1");
+}
 bool attention_enabled() {
     const char *mode=std::getenv("GGML_KUNLUN_ATTENTION");return mode && (!std::strcmp(mode,"1") || !std::strcmp(mode,"tg"));
 }
@@ -73,7 +76,8 @@ const char * attention_reason(const ggml_tensor *t) {
     // Softmax/CONT here would introduce new host/device round trips.
     int64_t queries=t->op==GGML_OP_MUL_MAT?t->src[1]->ne[1]:
         t->op==GGML_OP_ROPE?t->ne[2]:t->op==GGML_OP_SOFT_MAX?t->ne[1]:ggml_nrows(t);
-    if(queries>256)return "query count exceeds Attention chain limit";
+    if(queries>256 && !(large_pp_enabled() && flash_enabled() &&
+        (t->op==GGML_OP_ROPE || t->op==GGML_OP_CONT)))return "query count exceeds Attention chain limit";
     if(!std::strcmp(std::getenv("GGML_KUNLUN_ATTENTION"),"tg") && queries>1)
         return "PP CPU policy";
     if(t->op==GGML_OP_MUL_MAT){kunlun::Matmul4Layout p{};return attention_parameters(t,p);}
