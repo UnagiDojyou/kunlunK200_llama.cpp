@@ -23,3 +23,10 @@ target_link_libraries(kunlun-kv-max-bench PRIVATE llama ggml ggml-base ${CMAKE_D
 
 add_executable(kunlun-activation-share-test activation-share-test.cpp)
 target_link_libraries(kunlun-activation-share-test PRIVATE ggml ggml-base)
+
+# Standalone numerical diagnostic, never used in normal inference.
+if(NOT TARGET KunlunK200::kunlunk200)
+    find_package(KunlunK200 0.7.12 CONFIG REQUIRED)
+endif()
+add_executable(kunlun-swiglu-numerics swiglu-numerics.cpp)
+target_link_libraries(kunlun-swiglu-numerics PRIVATE ggml ggml-base KunlunK200::kunlunk200)

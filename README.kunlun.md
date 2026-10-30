@@ -19,3 +19,7 @@ KUNLUN_Q4_MAC_DMA=1 opts into the library stream GEMV for validated common-Q4 sh
 PP Q4 GEMM opt-in 0.7.10: [評価レポート](docs/backend/kunlun-q4-gemm-next-20261029.md).
 
 Large PP offload 0.7.11: [評価と実行設定](docs/backend/kunlun-large-pp-20261030.md).
+
+## 0.7.12 optimization defaults
+
+See [selection, shape guards and disabling options](ggml/src/ggml-kunlun/DEFAULTS.md). Activation sharing, GEMV stream/N-major and M128 Owners are automatic only within the existing common-Q4 profile and validated shapes. Common-Q4/Attention profiles, Large PP and SwiGLU remain opt-in. Explicit 0 retains the preceding path.

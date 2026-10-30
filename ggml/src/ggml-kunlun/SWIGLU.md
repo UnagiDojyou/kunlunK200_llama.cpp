@@ -24,3 +24,7 @@ Runtime totals report actual GPU calls/elements and phase counts per PD. `GGML_K
 Finite scalar CPU and SIMD CPU implementations have slightly different rounding. GPU GLU can therefore change logits and greedy paths after existing A8 quantization. The opt-in is not a claim of bitwise model equivalence or universally faster TG. Compare CPU-reference KL, fixed-token perplexity, generation and the actual workload before selecting it.
 
 Diagnostic-only harness options: `K200_CAPTURE_GLU=<existing-dir>` with `K200_TRACE_OPS=1` captures selected F32 FFN intermediates. `K200_CAPTURE_LAYER` selects one layer, or -1 selects all. `K200_CHECK_STATE=1` checks save/restore by comparing next-token logits bitwise; exclude those runs from performance. `K200_QUALITY_BATCH` changes the quality-eval batch/ubatch size (default8).
+
+## 0.7.12 reevaluation
+
+The CPU default is retained. With current FlashAttention and other common-Q4 optimizations, XPU SwiGLU improves the measured PP/TG workloads, but scalar/SIMD rounding and A8 threshold sensitivity still prevent bitwise model equivalence. See the 2026-10-30 defaults report; this does not change the supported types/layouts or 0/1/pp semantics.

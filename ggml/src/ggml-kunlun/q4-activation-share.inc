@@ -3,7 +3,7 @@
 // validate the footprint and detect writes. No lease survives graph_compute.
 bool activation_share_enabled() {
     const char * s=std::getenv("GGML_KUNLUN_Q4_ACT_SHARE");
-    return common_enabled() && s && !std::strcmp(s,"1");
+    return common_enabled() && (!s || !std::strcmp(s,"1"));
 }
 bool activation_candidate(backend_context * c, const ggml_tensor * t) {
     if (t->op!=GGML_OP_MUL_MAT || !t->src[0] || !t->src[1]) return false;

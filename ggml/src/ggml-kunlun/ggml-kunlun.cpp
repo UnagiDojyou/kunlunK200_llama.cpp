@@ -743,13 +743,22 @@ ggml_backend_reg_t ggml_backend_kunlun_reg(void) {
         const char * mac_setting=std::getenv("KUNLUN_Q4_MAC_DMA");
         if(mac_setting && std::strcmp(mac_setting,"0") && std::strcmp(mac_setting,"1"))
             std::fprintf(stderr,"KUNLUN Q4 MAC/DMA disabled: invalid KUNLUN_Q4_MAC_DMA=%s (expected 0 or 1)\n",mac_setting);
-        if(mac_setting && !std::strcmp(mac_setting,"1"))std::fprintf(stderr,
-            "KUNLUN Q4 MAC/DMA: %s; library shape dispatch, unchanged GEMM\n",common_enabled()?"opt-in enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
+        if(!mac_setting || !std::strcmp(mac_setting,"1"))std::fprintf(stderr,
+            "KUNLUN Q4 MAC/DMA: %s; library shape dispatch, unchanged GEMM\n",common_enabled()?"shape-selected enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
         const char * share_setting=std::getenv("GGML_KUNLUN_Q4_ACT_SHARE");
         if(share_setting && std::strcmp(share_setting,"0") && std::strcmp(share_setting,"1"))
             std::fprintf(stderr,"KUNLUN activation sharing disabled: invalid GGML_KUNLUN_Q4_ACT_SHARE=%s (expected 0 or 1)\n",share_setting);
-        if(share_setting && !std::strcmp(share_setting,"1"))std::fprintf(stderr,
-            "KUNLUN activation sharing: %s; graph-local tensor generations, per-PD leases\n",common_enabled()?"opt-in enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
+        if(!share_setting || !std::strcmp(share_setting,"1"))std::fprintf(stderr,
+            "KUNLUN activation sharing: %s; graph-local tensor generations, per-PD leases\n",common_enabled()?"shape-selected enabled":"disabled (requires GGML_KUNLUN_COMMON_Q4=1)");
+        if (std::getenv("GGML_KUNLUN_DIAGNOSTICS")) {
+            std::fprintf(stderr,"KUNLUN optimization policy: common=%d share=%d MAC_DMA=%s NMAJOR=%s GEMM_OWNERS=%s LARGE_PP=%s SWIGLU=%s; library shape/capacity guards remain active\n",
+                common_enabled(), activation_share_enabled(),
+                mac_setting ? mac_setting : "auto(default)",
+                std::getenv("KUNLUN_Q4_NMAJOR") ? std::getenv("KUNLUN_Q4_NMAJOR") : "auto(default)",
+                std::getenv("KUNLUN_Q4_GEMM_OWNERS") ? std::getenv("KUNLUN_Q4_GEMM_OWNERS") : "auto(default)",
+                std::getenv("KUNLUN_LARGE_PP") ? std::getenv("KUNLUN_LARGE_PP") : "0(default)",
+                glu_setting ? glu_setting : "0(default)");
+        }
         if (common_enabled()) std::fprintf(stderr,"KUNLUN common Q4 opt-in: common ABI v1 > legacy native > requant I8; M>1 Row A8, M=1 two-component A8\n");
         type_iface.get_name = [](ggml_backend_buffer_type_t b) { return ((type_context *)b->context)->name.c_str(); };
         type_iface.alloc_buffer = alloc_buffer;
