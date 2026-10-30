@@ -113,8 +113,20 @@ static int smoke_run(int argc,char **argv) {
         }
     }
     if(!teacher.empty() && (int)teacher.size()<predict)return 2;
+    struct Prompt {std::string id,path;};
+    std::vector<Prompt> prompts{{"single",""}};
+    bool task_set=std::getenv("K200_TASK_MANIFEST")!=nullptr;
+    if(task_set){
+        if(std::getenv("K200_INPUT_IDS") || std::getenv("K200_PP_LENGTHS") || !teacher.empty())return 2;
+        prompts.clear();std::ifstream input(std::getenv("K200_TASK_MANIFEST"));std::string id,path;
+        while(input>>id>>path){if(id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)return 2;prompts.push_back({id,path});}
+        if(!input.eof() || prompts.empty())return 2;
+    }
+    auto *batch=llama_batch_ext_init(ctx);
+    for(const auto &task:prompts) {
+    if(task_set)std::fprintf(stderr,"K200CASE_BEGIN id=%s\n",task.id.c_str());
     std::string prompt="The capital of France is";
-    if(const char *file=std::getenv("K200_PROMPT_FILE")){
+    if(const char *file=task.path.empty()?std::getenv("K200_PROMPT_FILE"):task.path.c_str()){
         std::ifstream in(file);if(!in)return 2;prompt.assign(std::istreambuf_iterator<char>(in),{});
     }
     if(const char *file=std::getenv("K200_INPUT_IDS"))tokens=read_ids(file,vocab);
@@ -125,7 +137,6 @@ static int smoke_run(int argc,char **argv) {
     if(tokens.empty() || tokens.size()+predict-1>cp.n_ctx)return 2;
     std::fprintf(stderr,"K200INPUT");for(auto id:tokens)std::fprintf(stderr," %d",id);std::fprintf(stderr,"\n");
     std::fprintf(stderr,"K200INIT backend_ms=%.3f model_ms=%.3f context_ms=%.3f ctx=%u batch=%u ubatch=%u prompt_tokens=%zu positions=%d teacher_forced=%d\n",backend_ms,model_ms,context_ms,cp.n_ctx,cp.n_batch,cp.n_ubatch,tokens.size(),predict,!teacher.empty() || std::getenv("K200_TEACHER_DIR"));
-    auto *batch=llama_batch_ext_init(ctx);
     auto process=[&](const llama_token *ids,int count,int pos){
         K200_DIAG_SCOPE(process_scope,"harness","process");
         llama_batch_ext_clear(batch);
@@ -203,6 +214,13 @@ static int smoke_run(int argc,char **argv) {
         }
         if(dump)std::fclose(dump);
         if(trial>=0){
+            if(task_set) {
+                std::string answer;
+                for(auto token:generated){std::vector<char>part(4096);int n=llama_token_to_piece(vocab,token,part.data(),part.size(),0,true);if(n<0)return 1;answer.append(part.data(),n);}
+                std::printf("\nK200TASK {\"id\":\"%s\",\"text\":\"",task.id.c_str());
+                for(unsigned char c:answer){if(c=='"' || c=='\\')std::printf("\\%c",c);else if(c<32)std::printf("\\u%04x",c);else std::putchar(c);}
+                std::printf("\"}\n");std::fflush(stdout);
+            }
             std::printf("\n");std::fprintf(stderr,"TOKENS mode=%s",mode);for(auto id:generated)std::fprintf(stderr," %d",id);std::fprintf(stderr,"\n");
             rusage cpu_end{};getrusage(RUSAGE_SELF,&cpu_end);
             double user_ms=(cpu_end.ru_utime.tv_sec-cpu_start.ru_utime.tv_sec)*1000.+(cpu_end.ru_utime.tv_usec-cpu_start.ru_utime.tv_usec)/1000.;
@@ -239,6 +257,8 @@ static int smoke_run(int argc,char **argv) {
         std::fclose(f);
     }
 
+    if(task_set)std::fprintf(stderr,"K200CASE_END id=%s\n",task.id.c_str());
+    } // prompt set; each trial above clears KV before PP
     setenv("K200_PROFILE_PHASE","cleanup",1);
     llama_batch_ext_free(batch);llama_free(ctx);llama_model_free(model);llama_backend_free();
     return 0;

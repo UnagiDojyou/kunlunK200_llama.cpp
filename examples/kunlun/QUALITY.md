@@ -1,51 +1,23 @@
-# Fixed-input K200 quality evaluation
+# Small fixed-token quality evaluation
 
-`kunlun-quality-eval` is a standalone example; it adds no instrumentation to
-ordinary backend builds. Tokenize once, then feed the identical ID file to
-the CPU Q4_0 reference, legacy rowwise INT8 mode and candidate mode.
+The inference library remains 0.7.12. SwiGLU and Large PP remain opt-in; the four bitwise Q4 optimizations keep their 0.7.12 defaults. See docs/backend/kunlun-quality-20261030.md for PPL, task results, limitations, and the independent decisions.
 
-```bash
-bin=build/perf-llama/bin
-model=models/llama2-7b-q4_0.gguf
-"$bin/kunlun-quality-eval" "$model" tokenize wiki.test.raw 8192 input.ids
-"$bin/kunlun-quality-eval" "$model" cpu input.ids 256 cpu.bin
-GGML_KUNLUN_REQUANT_I8=1 GGML_KUNLUN_CPU_KV=1 KUNLUN_GEMV=legacy KUNLUN_RMS_NORM=legacy \
-  "$bin/kunlun-quality-eval" "$model" none input.ids 256 legacy.bin cpu.bin
-GGML_KUNLUN_REQUANT_I8=1 GGML_KUNLUN_CPU_KV=1 \
-  "$bin/kunlun-quality-eval" "$model" none input.ids 256 - cpu.bin legacy.bin
-```
+The existing kunlun-quality-eval tool scores the same teacher tokens at every mode. The CLI's ctx argument defines an independent scoring block, not a mandatory allocation size: 513 input IDs yield 512 scored transitions. BOS is conditioning input and is not itself scored. Clear KV separates blocks; no transition across blocks is scored. Every input row requests logits, including rows not selected for detailed distribution metrics.
 
-Repeat with context 1024. Threads are 6, batch/ubatch are 8, Flash Attention
-is disabled. Each independent block contains `context` IDs; its first token
-has no prediction and the remaining tokens are scored. State is cleared
-between blocks. No additional BOS is inserted at block boundaries. With
-8192 input IDs this scores 8160 targets at context 256 or 8184 at context
-1024. These are fixed comparison scores, not a claim to reproduce a
-different benchmark's canonical WikiText perplexity protocol.
+Optional diagnostic-only settings:
 
-The source is [Salesforce WikiText-2 raw test](https://huggingface.co/datasets/Salesforce/wikitext/blob/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/test-00000-of-00001.parquet).
-Pin revision `b08601e04326c79dfdd32d625aee71d232d685c3` and Parquet SHA256
-`5f1bea067869d04849c0f975a2b29c4ff47d867f484f5010ea5e861eab246d91`.
-Join every text row with one newline, including empty rows. The resulting
-UTF-8 text SHA256 is
-`aca2f46735043bcfd0a44eca981d04627b9cdf74c4c9a04bf0856d04066f58fc`.
-Tokenization adds the model's BOS once. Record the ID file hash and model
-hash with results.
+| Setting | Unset | Meaning |
+| --- | --- | --- |
+| K200_QUALITY_BATCH | 8 | Logical process batch, 1..document block size |
+| K200_QUALITY_UBATCH | batch | Physical ubatch, 1..batch |
+| K200_QUALITY_CONTEXT | CLI ctx | Allocated runtime context, at least the scoring block |
+| K200_QUALITY_DOCS | none | Whitespace-separated document ID/category manifest, one entry per block |
+| K200_QUALITY_SAMPLE_STRIDE | 1 | Only sample logits/reference files; all tokens still contribute to NLL |
 
-Optional dump/reference files contain two native little-endian int32 values
-(`vocabulary size`, `scored positions`) followed by FP32 vocabulary rows.
-Reference comparison streams these rows and reports global logits NMSE,
-mean/max KL(reference || candidate), maximum absolute difference and greedy
-argmax agreement. The CPU Q4_0 baseline excludes the earlier FP16-to-Q4_0
-weight approximation; the legacy reference separates existing rowwise INT8
-error from a new implementation's added error.
+With stride>1, selected document positions are multiples of stride plus 127,128,255,256,257,511 when in bounds. Stride32/block513 gives20 rows. A versioned sampled-reference header records magic 0x4b515331, version1, vocabulary size, total scored transitions, block size and stride. References must use identical IDs, labels, boundaries, context, batch/ubatch and sample schedule. Stride1 preserves the old two-integer header and full-reference behavior. The corpus context field retains its legacy meaning of scoring block length; actual allocation and ubatch are in run metadata/settings.
 
-Use `kunlun-llm-smoke` separately for PP/TG timing and free generation. Its
-`K200_INPUT_IDS`, `K200_TEACHER_FILE`, `K200_CTX`, `K200_BATCH`,
-`K200_UBATCH`, `K200_REPEATS`, `K200_WARMUP` and `K200_IGNORE_EOS` settings
-permit fixed teacher forcing, full-context boundary tests and independent
-free generation. Teacher-forced agreement does not establish free-running
-long-form quality. Preserve generated token IDs and text as well as metrics.
-The argmax text trace printed during teacher forcing uses the reference
-history; it is not a causal free-running sample. Use runs without a teacher
-file for reading and comparing generated text.
+The tool reports per-document and global mean NLL/PPL, sampled NMSE/KL, Top1/Top5 overlap, reference Top2 gap, correct-label log-probability changes and a worst-KL example. A gap<=0.1 and KL>0.1 are descriptive diagnostic thresholds, not quality acceptance standards. Do not average NMSE from different reference energies or treat boundary-enriched samples as all-token estimates.
+
+kunlun-llm-smoke also accepts K200_TASK_MANIFEST: one ID and prompt-file path per whitespace-separated line. It loads the model/context once, clears KV before each trial, and emits a JSON K200TASK answer with an alphanumeric/hyphen/underscore ID. It uses the original greedy argmax behavior, generation cap and EOS policy; no hidden chat template is added. It rejects mixing the manifest with input-ID/PP-length/teacher inputs. K200_NO_DUMP=1 avoids raw logits. Ordinary single-prompt invocation is unchanged.
+
+Use the existing guarded runner, fixed models and fixed executables. The tokenizer-only path uses vocab_only and records a vocabulary fingerprint/BOS/EOS for fixture compatibility. Sampled references are temporary comparison data and can be deleted after aggregates have been checked. Keep quality diagnostics separate from ordinary performance measurements.
