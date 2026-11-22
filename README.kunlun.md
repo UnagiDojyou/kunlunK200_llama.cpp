@@ -64,3 +64,12 @@ to restore immediate placement checks. Disabling
 `GGML_KUNLUN_TP_GRAPH_PROBE_CACHE` also restores the immediate path.
 Embedding, NextN, backend sampling, LoRA, and evaluation callbacks keep the
 immediate path. This uses the existing system Kunlun library ABI.
+
+### Two-PD Q6_K output
+
+Kunlun 0.7.15 enables paired execution for the validated Tensor Split
+Llama 7B Q4_0 single-row 4096 x 32000 raw Q6_K logits. It keeps the
+terminal PD0 output contract. PD1 sends its 16000 logits to PD0 after
+both devices complete. Set `GGML_KUNLUN_TP_OUTPUT_PARALLEL=0` to use
+the single-PD output path. Other shapes and source layouts keep the
+existing dispatch.

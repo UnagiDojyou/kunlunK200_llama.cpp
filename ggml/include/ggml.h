@@ -667,6 +667,7 @@ extern "C" {
         GGML_TENSOR_FLAG_COMPUTE = 16, // ...must be computed
         GGML_TENSOR_FLAG_META_FIRST_OUTPUT = 32, // terminal output owned by the first Meta device
         GGML_TENSOR_FLAG_NO_FUSION = 64, // intermediate values must be materialized for graph evaluation
+        GGML_TENSOR_FLAG_META_Q6_PAIR = 128, // terminal Q6_K output eligible for a pair dispatch
     };
 
     enum ggml_tri_type {

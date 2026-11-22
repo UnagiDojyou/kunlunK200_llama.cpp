@@ -439,6 +439,62 @@ bool tp_first_output(const ggml_backend_meta_node_descriptor & desc) {
         !(desc.children[1]->flags & GGML_TENSOR_FLAG_COMPUTE);
 }
 
+int tp_q6_output_pair(TPGroupExecutor * g, const ggml_backend_meta_node_descriptor & desc) {
+    const char * enabled = kunlun_default_on("GGML_KUNLUN_TP_OUTPUT_PARALLEL");
+    if (!enabled || std::strcmp(enabled,"1") != 0 ||
+            !(desc.logical->flags & GGML_TENSOR_FLAG_META_Q6_PAIR)) return 0;
+    auto * y = desc.children[0];
+    const auto * w = desc.logical->src[0];
+    const auto * x = desc.logical->src[1];
+    if (!w || !x || w->ne[0] != 4096 || w->ne[1] != 32000 ||
+            !tp_span(y,0) || y->type != GGML_TYPE_F32 || y->view_src ||
+            y->ne[0] != 32000 || ggml_nelements(y) != 32000 ||
+            !ggml_is_contiguous(y) || (uintptr_t)y->data%256) return 0;
+    ggml_backend_meta_split_state state;
+    for (const auto * src : {w,x}) {
+        if (!ggml_backend_meta_tensor_split_state(src,true,&state) ||
+                state.axis != GGML_BACKEND_SPLIT_AXIS_MIRRORED) return 0;
+    }
+    const ggml_tensor * input[2];
+    const kunlun::Q6KWeight * weights[2];
+    for (int pd=0; pd<2; ++pd) {
+        input[pd] = ggml_backend_meta_tensor_child(x,pd);
+        const auto * packed = ggml_backend_meta_tensor_child(w,pd);
+        if (!tp_plain_f32(input[pd],pd) || input[pd]->ne[0] != 4096 ||
+                ggml_nelements(input[pd]) != 4096 || !tp_span(packed,pd) ||
+                !use_q6(packed) || !packed->extra) return 0;
+        const auto * parts = static_cast<const tensor_parts *>(packed->extra);
+        if (!parts->q6 || !parts->q6_weight[pd] || parts->q6_weight[pd]->data() != packed->data) return 0;
+        weights[pd] = parts->q6_weight[pd].get();
+        const auto * buffer = buffer_of(packed);
+        const size_t offset = (uintptr_t)packed->data - (uintptr_t)buffer->base;
+        if (weights[pd]->info().payload_bytes > buffer->size - offset) return 0;
+    }
+    const char * flag = std::getenv("GGML_KUNLUN_TP_OUTPUT_DIAG");
+    const bool diagnostic = flag && std::strcmp(flag,"1") == 0;
+    kunlun::Q6KPairTiming timing{};
+    K200_DIAG_SCOPE(head_diag,"tp.head","2PD",y->name,64000);
+    const int status = kunlun::q6_k_matmul_pair(g->contexts[0]->q6[0],g->contexts[1]->q6[1],y->data,
+                                              *weights[0],*weights[1],input[0]->data,input[1]->data,
+                                              diagnostic ? &timing : nullptr);
+    if (status == 1) {
+        ++g->parallel_nodes;
+        for (int pd=0;pd<2;++pd) ++g->contexts[pd]->q6_calls[pd];
+        if (diagnostic) {
+            GGML_LOG_INFO("KUNLUN_Q6_PAIR prepare=%llu quant0=%llu quant1=%llu sd0=%llu sd1=%llu "
+                          "submit0=%llu submit1=%llu complete0=%llu complete1=%llu wait0=%llu wait1=%llu peer=%llu\n",
+                    (unsigned long long)(timing.prepared_ns-timing.begin_ns),
+                    (unsigned long long)timing.quant_enqueue_ns[0],(unsigned long long)timing.quant_enqueue_ns[1],
+                    (unsigned long long)timing.sdnn_enqueue_ns[0],(unsigned long long)timing.sdnn_enqueue_ns[1],
+                    (unsigned long long)timing.submit_ns[0],(unsigned long long)timing.submit_ns[1],
+                    (unsigned long long)timing.complete_ns[0],(unsigned long long)timing.complete_ns[1],
+                    (unsigned long long)timing.wait_ns[0],(unsigned long long)timing.wait_ns[1],
+                    (unsigned long long)(timing.peer_end_ns-timing.peer_begin_ns));
+        }
+    }
+    return status;
+}
+
 void tp_save_preflight(TPGroupExecutor * g,ggml_cgraph ** graphs,
         const ggml_backend_meta_node_descriptor * descriptors,size_t n) {
     auto & entry=g->preflight[graphs[0]];
@@ -618,6 +674,12 @@ ggml_status tp_compute_group(void * opaque,ggml_cgraph ** graphs,
         K200_DIAG_SCOPE(node_diag,"tp.node",ggml_op_name(t[0]->op),
                 t[0]->op==GGML_OP_MUL_MAT?t[0]->src[0]->name:t[0]->name);
         if (tp_first_output(descriptors[i])) {
+            const int output_pair = tp_q6_output_pair(g,descriptors[i]);
+            if (output_pair < 0) {
+                GGML_LOG_ERROR("KUNLUN TP: Q6_K output submission or collection failed\n");
+                return GGML_STATUS_FAILED;
+            }
+            if (output_pair > 0) continue;
             K200_DIAG_SCOPE(head_diag,"tp.head","PD0",t[0]->name,0,0);
             ggml_cgraph one{};
             one.n_nodes=1;one.nodes=graphs[0]->nodes+i;

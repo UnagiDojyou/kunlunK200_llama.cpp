@@ -1603,7 +1603,12 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
             !cparams.embeddings && !cparams.embeddings_nextn && model.output && model.output->type == GGML_TYPE_Q6_K &&
             logits_tensor && logits_tensor->op == GGML_OP_MUL_MAT && logits_tensor->src[0] == model.output) {
             const char * flag = std::getenv("GGML_KUNLUN_TP_OUTPUT_PD0");
-            if (!flag || std::strcmp(flag,"1") == 0) ggml_backend_meta_mark_first_output(gf, logits_tensor);
+            if ((!flag || std::strcmp(flag,"1") == 0) && ggml_backend_meta_mark_first_output(gf, logits_tensor) &&
+                    model.arch == LLM_ARCH_LLAMA && model.type == LLM_TYPE_7B &&
+                    model.ftype() == LLAMA_FTYPE_MOSTLY_Q4_0 && !cparams.cb_eval && !cparams.training &&
+                    loras->empty() && logits_tensor->ne[1] == 1) {
+                logits_tensor->flags |= GGML_TENSOR_FLAG_META_Q6_PAIR;
+            }
         }
         if (!ggml_backend_sched_alloc_graph(sched.get(), gf)) {
             LLAMA_LOG_ERROR("%s: failed to allocate graph\n", __func__);
