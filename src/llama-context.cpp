@@ -1,5 +1,6 @@
 #include "llama-context.h"
 #include "../ggml/src/k200-diag.h"
+#include "../ggml/src/ggml-backend-impl.h"
 
 #include "ggml.h"
 #include "llama-arch.h"
@@ -1547,7 +1548,40 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         //const auto t_start_us = ggml_time_us();
 
         const int64_t build_start = graph_timing ? ggml_time_us() : 0;
-        gf = model.build_graph(gparams);
+        {
+            K200_DIAG_SCOPE(build, "graph.builder", "model", "", ubatch.n_tokens);
+            const bool supported_pp = model.get_split_state_ud.kunlun && model.arch == LLM_ARCH_LLAMA &&
+                model.type == LLM_TYPE_7B && model.ftype() == LLAMA_FTYPE_MOSTLY_Q4_0 &&
+                model.n_gpu_layers() > model.hparams.n_layer_all &&
+                gtype == LLM_GRAPH_TYPE_DEFAULT && ubatch.n_tokens >= 32 && !cparams.training && !cparams.embeddings &&
+                !cparams.embeddings_nextn && !cparams.cb_eval && sampling.samplers.empty() && loras->empty();
+            const char * batch_placement = supported_pp ? std::getenv("GGML_KUNLUN_TP_PP_BUILD_PROBE_BATCH") : nullptr;
+            const char * probe_cache = supported_pp ? std::getenv("GGML_KUNLUN_TP_GRAPH_PROBE_CACHE") : nullptr;
+            if (supported_pp && (!batch_placement || std::strcmp(batch_placement, "1") == 0) &&
+                    (!probe_cache || std::strcmp(probe_cache, "1") == 0)) {
+                graph_placements placements;
+                auto deferred_params = gparams;
+                deferred_params.cb = graph_get_cb(&placements);
+                gf = model.build_graph(deferred_params);
+                // The result keeps parameters for reuse. Store the ordinary callback.
+                res->set_params(gparams);
+
+                if (gf && !placements.empty()) {
+                    K200_DIAG_SCOPE(placement, "graph.placement", "batched", "", placements.size());
+                    // Probe the completed metadata. Discard these hypothetical children before allocation.
+                    const auto backend = placements.front().second;
+                    std::unique_ptr<ggml_backend_meta_probe_scope, decltype(&ggml_backend_meta_probe_end)> probe(
+                        ggml_backend_meta_probe_begin(&backend, 1), ggml_backend_meta_probe_end);
+                    for (const auto & [tensor, target] : placements) {
+                        if (ggml_backend_supports_op(target, tensor)) {
+                            ggml_backend_sched_set_tensor_backend(sched.get(), tensor, target);
+                        }
+                    }
+                }
+            } else {
+                gf = model.build_graph(gparams);
+            }
+        }
         if (graph_timing) {
             const int64_t build_us = ggml_time_us() - build_start;
             const auto * mask = gf ? ggml_graph_get_tensor(gf, "attn_inp_kq_mask") : nullptr;
@@ -2901,8 +2935,8 @@ bool llama_context::sched_copy_experts(ggml_backend_t backend, const ggml_tensor
     return true;
 }
 
-llm_graph_cb llama_context::graph_get_cb() const {
-    return [&](const llama_ubatch & ubatch, ggml_tensor * cur, const char * name, int il) {
+llm_graph_cb llama_context::graph_get_cb(graph_placements * deferred) const {
+    return [this, deferred](const llama_ubatch & ubatch, ggml_tensor * cur, const char * name, int il) {
         if (il >= 0) {
             ggml_format_name(cur, "%s-%d", name, il);
         } else {
@@ -2918,8 +2952,13 @@ llm_graph_cb llama_context::graph_get_cb() const {
                 const auto & dev_layer = model.dev_layer(il);
                 for (const auto & backend : backends) {
                     if (ggml_backend_get_device(backend.get()) == dev_layer) {
-                        if (ggml_backend_supports_op(backend.get(), cur)) {
-                            ggml_backend_sched_set_tensor_backend(sched.get(), cur, backend.get());
+                        if (deferred) {
+                            deferred->emplace_back(cur, backend.get());
+                        } else {
+                            K200_DIAG_SCOPE(placement, "graph.placement", "inline", cur->name);
+                            if (ggml_backend_supports_op(backend.get(), cur)) {
+                                ggml_backend_sched_set_tensor_backend(sched.get(), cur, backend.get());
+                            }
                         }
                     }
                 }

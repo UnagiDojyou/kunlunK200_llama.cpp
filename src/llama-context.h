@@ -271,7 +271,8 @@ private:
             const llama_memory_context_i * mctx,
                           llm_graph_type   gtype) const;
 
-    llm_graph_cb graph_get_cb() const;
+    using graph_placements = std::vector<std::pair<ggml_tensor *, ggml_backend_t>>;
+    llm_graph_cb graph_get_cb(graph_placements * deferred = nullptr) const;
 
     // create a new backend scheduler for a graph of the specified size and register the callbacks below
     void sched_new(size_t max_nodes, bool parallel);

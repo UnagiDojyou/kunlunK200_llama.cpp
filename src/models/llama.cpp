@@ -1,4 +1,5 @@
 #include "models.h"
+#include "../../ggml/src/k200-diag.h"
 
 void llama_model_llama::load_arch_hparams(llama_model_loader & ml) {
     uint32_t n_vocab = 0;
@@ -137,6 +138,7 @@ llama_model_llama::graph<embed>::graph(const llama_model & model, const llm_grap
 
         // self-attention
         {
+            K200_DIAG_SCOPE(attention, "graph.layer", "attention");
             // rope freq factors for llama3; may return nullptr for llama2 and other models
             ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
@@ -180,6 +182,7 @@ llama_model_llama::graph<embed>::graph(const llama_model & model, const llm_grap
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
+        K200_DIAG_SCOPE(ffn, "graph.layer", "ffn-and-tail");
         ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 

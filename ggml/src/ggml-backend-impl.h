@@ -103,8 +103,8 @@ extern "C" {
     GGML_API bool ggml_backend_buft_is_meta  (ggml_backend_buffer_type_t buft);
 
     struct ggml_backend_meta_probe_scope;
-    struct ggml_backend_meta_probe_scope * ggml_backend_meta_probe_begin(const ggml_backend_t * backends, size_t count);
-    void ggml_backend_meta_probe_end(struct ggml_backend_meta_probe_scope * scope);
+    GGML_API struct ggml_backend_meta_probe_scope * ggml_backend_meta_probe_begin(const ggml_backend_t * backends, size_t count);
+    GGML_API void ggml_backend_meta_probe_end(struct ggml_backend_meta_probe_scope * scope);
 
     GGML_API size_t         ggml_backend_meta_n_backends    (ggml_backend_t meta_backend);
     GGML_API ggml_backend_t ggml_backend_meta_simple_backend(ggml_backend_t meta_backend, size_t index);

@@ -1,4 +1,5 @@
 #include "llama-model.h"
+#include "../ggml/src/k200-diag.h"
 
 #include "llama-arch.h"
 #include "llama-ext.h"
@@ -3372,7 +3373,11 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
 }
 
 ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
-    std::unique_ptr<llm_graph_context> llm = build_arch_graph(params);
+    auto llm = [&] {
+        K200_DIAG_SCOPE(architecture, "graph.builder", "architecture");
+        return build_arch_graph(params);
+    }();
+    K200_DIAG_SCOPE(outputs, "graph.builder", "outputs");
 
     // add on pooling layer
     llm->build_pooling(cls, cls_b, cls_out, cls_out_b, cls_norm);

@@ -53,3 +53,14 @@ GGML_KUNLUN_PRUNE_INACTIVE_MIXED=1 omits inactive mixed-input branches in suppor
 See [DEFAULTS.md](DEFAULTS.md). Common Q4, new SDNN Q6, Q4/F32 GET_ROWS and pure-token graph specialization are enabled when unset. Large PP remains disabled. Explicit 0 preserves rollback. This table supersedes dated opt-in reports.
 
 The [production defaults and Tensor Split prerequisites](ggml/src/ggml-kunlun/TENSOR-DEFAULTS.md) describe the two-PD paths and environment overrides.
+
+### Llama 7B Tensor Split prefill graph construction
+
+With two Kunlun devices, full offload, and a Llama 7B Q4_0 inference graph,
+prefill batches of at least 32 tokens defer placement probes until the graph
+metadata is complete. The probes share the existing Meta probe cache only
+within that graph build. Explicitly set `GGML_KUNLUN_TP_PP_BUILD_PROBE_BATCH=0`
+to restore immediate placement checks. Disabling
+`GGML_KUNLUN_TP_GRAPH_PROBE_CACHE` also restores the immediate path.
+Embedding, NextN, backend sampling, LoRA, and evaluation callbacks keep the
+immediate path. This uses the existing system Kunlun library ABI.

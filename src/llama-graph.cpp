@@ -1,4 +1,5 @@
 #include "llama-graph.h"
+#include "../ggml/src/k200-diag.h"
 
 #include "llama-impl.h"
 #include "llama-model.h"
@@ -3230,12 +3231,15 @@ ggml_tensor * llm_graph_context::build_attn(
             const auto & k_idxs = inp->get_k_idxs();
             const auto & v_idxs = inp->get_v_idxs();
 
+            K200_DIAG_SCOPE(kv_write, "graph.layer", "kv-write");
             ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, k_idxs, il));
             ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, v_idxs, il));
         }
-
-        k = mctx_cur->get_k(ctx0, il);
-        v = mctx_cur->get_v(ctx0, il);
+        {
+            K200_DIAG_SCOPE(kv_view, "graph.layer", "kv-view");
+            k = mctx_cur->get_k(ctx0, il);
+            v = mctx_cur->get_v(ctx0, il);
+        }
     }
 
     ggml_tensor * kq_mask = inp->get_kq_mask();
