@@ -1507,10 +1507,13 @@ bool llama_context::set_adapter_cvec(
 }
 
 llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, llm_graph_type gtype, llama_memory_context_i * mctx, ggml_status & ret) {
-    if (mctx && !mctx->apply()) {
-        LLAMA_LOG_ERROR("%s: failed to apply memory context\n", __func__);
-        ret = GGML_STATUS_FAILED;
-        return nullptr;
+    {
+        K200_DIAG_SCOPE(memory, "graph.transition", "kv_apply");
+        if (mctx && !mctx->apply()) {
+            LLAMA_LOG_ERROR("%s: failed to apply memory context\n", __func__);
+            ret = GGML_STATUS_FAILED;
+            return nullptr;
+        }
     }
 
     auto * res = get_gf_res_prev();
@@ -1550,15 +1553,21 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         const int64_t build_start = graph_timing ? ggml_time_us() : 0;
         {
             K200_DIAG_SCOPE(build, "graph.builder", "model", "", ubatch.n_tokens);
-            const bool supported_pp = model.get_split_state_ud.kunlun && model.arch == LLM_ARCH_LLAMA &&
+            const bool supported_graph = model.get_split_state_ud.kunlun && model.arch == LLM_ARCH_LLAMA &&
                 model.type == LLM_TYPE_7B && model.ftype() == LLAMA_FTYPE_MOSTLY_Q4_0 &&
                 model.n_gpu_layers() > model.hparams.n_layer_all &&
-                gtype == LLM_GRAPH_TYPE_DEFAULT && ubatch.n_tokens >= 32 && !cparams.training && !cparams.embeddings &&
+                gtype == LLM_GRAPH_TYPE_DEFAULT && !cparams.training && !cparams.embeddings &&
                 !cparams.embeddings_nextn && !cparams.cb_eval && sampling.samplers.empty() && loras->empty();
-            const char * batch_placement = supported_pp ? std::getenv("GGML_KUNLUN_TP_PP_BUILD_PROBE_BATCH") : nullptr;
-            const char * probe_cache = supported_pp ? std::getenv("GGML_KUNLUN_TP_GRAPH_PROBE_CACHE") : nullptr;
-            if (supported_pp && (!batch_placement || std::strcmp(batch_placement, "1") == 0) &&
-                    (!probe_cache || std::strcmp(probe_cache, "1") == 0)) {
+            const bool supported_pp = supported_graph && ubatch.n_tokens >= 32;
+            const bool supported_decode = supported_graph && mctx && ubatch.n_tokens == 1 && ubatch.n_seqs_unq == 1 &&
+                n_outputs == 1 && model.output && model.output->type == GGML_TYPE_Q6_K &&
+                model.output->ne[0] == 4096 && model.output->ne[1] == 32000;
+            const char * batch_placement = supported_pp ? std::getenv("GGML_KUNLUN_TP_PP_BUILD_PROBE_BATCH") :
+                supported_decode ? std::getenv("GGML_KUNLUN_TP_DECODE_BUILD_PROBE_BATCH") : nullptr;
+            const bool batch_probes = (supported_pp || supported_decode) &&
+                (!batch_placement || std::strcmp(batch_placement, "1") == 0);
+            const char * probe_cache = batch_probes ? std::getenv("GGML_KUNLUN_TP_GRAPH_PROBE_CACHE") : nullptr;
+            if (batch_probes && (!probe_cache || std::strcmp(probe_cache, "1") == 0)) {
                 graph_placements placements;
                 auto deferred_params = gparams;
                 deferred_params.cb = graph_get_cb(&placements);
@@ -1566,6 +1575,7 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
                 // The result keeps parameters for reuse. Store the ordinary callback.
                 res->set_params(gparams);
 
+                bool retry_inline = supported_decode && !gf;
                 if (gf && !placements.empty()) {
                     K200_DIAG_SCOPE(placement, "graph.placement", "batched", "", placements.size());
                     // Probe the completed metadata. Discard these hypothetical children before allocation.
@@ -1575,8 +1585,18 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
                     for (const auto & [tensor, target] : placements) {
                         if (ggml_backend_supports_op(target, tensor)) {
                             ggml_backend_sched_set_tensor_backend(sched.get(), tensor, target);
+                        } else if (supported_decode) {
+                            retry_inline = true;
+                            break;
                         }
                     }
+                }
+                if (retry_inline) {
+                    // Clear the abandoned placements after the probe arena has been released.
+                    K200_DIAG_SCOPE(rollback, "graph.transition", "rollback");
+                    ggml_backend_sched_reset(sched.get());
+                    res->reset();
+                    gf = model.build_graph(gparams);
                 }
             } else {
                 gf = model.build_graph(gparams);

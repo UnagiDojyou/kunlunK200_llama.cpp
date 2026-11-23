@@ -236,14 +236,18 @@ llama_model_llama::graph<embed>::graph(const llama_model & model, const llm_grap
     }
     cur = inpL;
 
-    cur = build_norm(cur,
-            model.output_norm, NULL,
-            LLM_NORM_RMS, -1);
+    {
+        K200_DIAG_SCOPE(final_norm, "graph.transition", "final_norm");
+        cur = build_norm(cur,
+                model.output_norm, NULL,
+                LLM_NORM_RMS, -1);
 
-    cb(cur, "result_norm", -1);
-    res->t_embd = cur;
+        cb(cur, "result_norm", -1);
+        res->t_embd = cur;
+    }
 
     if constexpr (!embed) {
+        K200_DIAG_SCOPE(head, "graph.transition", "head_node");
         // lm_head
         cur = build_lora_mm(model.output, cur, model.output_s);
 

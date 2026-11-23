@@ -73,3 +73,12 @@ terminal PD0 output contract. PD1 sends its 16000 logits to PD0 after
 both devices complete. Set `GGML_KUNLUN_TP_OUTPUT_PARALLEL=0` to use
 the single-PD output path. Other shapes and source layouts keep the
 existing dispatch.
+
+### Single-token Decode graph placement
+
+Eligible single-token, single-sequence graph builds for Llama 7B Q4_0
+Tensor Split share the existing Meta probe arena by default.
+Set `GGML_KUNLUN_TP_DECODE_BUILD_PROBE_BATCH=0` to use immediate placement.
+If a deferred probe declines, the graph is rebuilt using immediate
+placement before allocation. PP placement and terminal Q6_K dispatch
+keep their own settings.
